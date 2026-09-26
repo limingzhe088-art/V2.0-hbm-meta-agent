@@ -1,0 +1,7 @@
+study_id,record_id,title,first_author,year,doi,country,population,matrix,analyte,screening_status,human_gate_status,meta_disposition
+ST-0001,R001,"Urinary bisphenol A concentrations in adults from Shanghai, China: a cross-sectional study",Zhang W,2019,10.1234/demo.001,,,,,included_fulltext,human_confirmed,include
+ST-0002,R002,Urinary bisphenol A exposure and reproductive outcomes in Chinese pregnant women: a cohort study,Wang L,2020,10.1234/demo.002,,,,,included_fulltext,human_confirmed,include
+ST-0003,R004,"Urinary bisphenol A levels among children in Guangdong, China: a school-based survey",Chen X,2021,10.1234/demo.004,,,,,included_fulltext,human_confirmed,include
+ST-0004,R005,Urinary bisphenol A concentrations and type 2 diabetes in Chinese adults: a longitudinal study,Liu J,2018,10.1234/demo.005,,,,,included_fulltext,human_confirmed,include
+ST-0005,R006,"Urinary bisphenol A in pregnant women from Zhejiang, China: exposure levels and determinants",Huang Y,2022,10.1234/demo.006,,,,,included_fulltext,human_confirmed,include
+ST-0006,R015,"Urinary concentrations of bisphenol A among pregnant women in Beijing, China",Xu L,2023,10.1234/demo.015,,,,,included_fulltext,human_confirmed,include

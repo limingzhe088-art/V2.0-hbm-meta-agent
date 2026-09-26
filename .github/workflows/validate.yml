@@ -143,6 +143,14 @@ jobs:
             skills/S2-screening-quality/templates/included_studies_template.csv
             skills/S2-screening-quality/templates/excluded_studies_template.csv
             skills/S2-screening-quality/templates/screening_log_template.csv
+            examples/bpa-china-demo/project.yaml
+            examples/bpa-china-demo/01-search/source_summary.csv
+            examples/bpa-china-demo/01-search/raw_records_example.csv
+            examples/bpa-china-demo/01-search/pubmed_export.ris
+            examples/bpa-china-demo/01-search/wos_export.ris
+            examples/bpa-china-demo/01-search/scopus_export.ris
+            examples/bpa-china-demo/02-screening/title_abstract_screening.csv
+            examples/bpa-china-demo/03-extraction/master_table_EXAMPLE.csv
             skills/S3-extraction-standardization/templates/extraction_template.csv
             skills/S4-unit-statistic-conversion/templates/conversion_trace.csv
             skills/S5-weighted-pooling-edi/templates/edi_results_OUTPUT_example.csv
@@ -174,6 +182,12 @@ jobs:
       # 判定逻辑与本地 tests/ci_local.py 第 7 步共用 verify_repo_clean.py 同一套代码。
       - name: "C8 · 仓库洁净度（字节码 / CRLF）"
         run: python tests/verify_repo_clean.py
+
+      # ── C12：端到端测试（BPA 合成案例，全部数据虚构）────────────────
+      # S1 解析/合并 → S2 规范化/去重/分类/全文筛/清单/PRISMA → S2→S3 交接
+      # （合成主表过 validate_table）。输出逐行比对确定性快照。
+      - name: "C12 · E2E test with BPA demo data"
+        run: python tests/test_e2e_bpa_demo.py
 
       # ── 上传失败时的诊断 ─────────────────────────────────────────
       - name: Diagnostics on failure

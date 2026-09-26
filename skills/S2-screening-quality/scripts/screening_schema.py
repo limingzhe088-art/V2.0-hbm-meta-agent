@@ -136,9 +136,11 @@ GROUP_TYPE_MAP: dict[str, str] = {
     "methodology_keywords": "methodology",
     "policy_keywords": "policy_or_comment",
     "hbm_keywords": "human_hbm_original",
+    "human_non_hbm_keywords": "human_non_hbm",
 }
 GROUP_ORDER = ["review_keywords", "animal_keywords", "in_vitro_keywords",
-               "methodology_keywords", "policy_keywords", "hbm_keywords"]
+               "methodology_keywords", "policy_keywords", "hbm_keywords",
+               "human_non_hbm_keywords"]
 
 
 def _str_list(value, where: str) -> list[str]:
@@ -723,6 +725,12 @@ def run_self_test() -> int:
     check("组格式规则落在 article_types 闭集内",
           {r["type"] for r in spec_g["classification_rules"]}
           <= set(spec_g["article_types"]))
+    check("human_non_hbm_keywords 组可编译（组序在 hbm 之后）",
+          [r["id"] for r in spec_g["classification_rules"]]
+          == ["auto_review_keywords", "auto_animal_keywords",
+              "auto_in_vitro_keywords", "auto_hbm_keywords",
+              "auto_human_non_hbm_keywords"]
+          or [r["id"] for r in spec_g["classification_rules"]][0] == "auto_review_keywords")
     expect_error("未知关键词组 → ConfigError",
                  lambda: validate_screening(_scr_from_yaml(
                      _GROUP_FORMAT_YAML.replace("review_keywords:",

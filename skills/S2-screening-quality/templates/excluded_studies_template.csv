@@ -1,2 +1,2 @@
 study_id,record_id,title,first_author,year,doi,country,population,matrix,analyte,screening_status,human_gate_status,meta_disposition,exclusion_reason
-ST-0002,scopus-00001,Blood mercury in parturients,"Wang, Wu",2021,10.1234/b.2021.002,,,,,excluded_fulltext,human_confirmed,,wrong_analyte
+EX-0001,scopus-00001,Blood mercury in parturients,"Wang, Wu",2021,10.1234/b.2021.002,,,,,excluded_fulltext,human_confirmed,,wrong_analyte

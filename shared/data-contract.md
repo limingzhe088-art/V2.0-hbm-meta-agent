@@ -455,6 +455,8 @@ paths:
 - **字段**：同 §10.5 + `exclusion_reason`（**仅人工**，闭集必须命中）。
   `screening_status` = `excluded_fulltext`。**记录保留不删除**——审稿人质疑
   漏筛时回溯 AI 证据与人工依据。
+- **study_id 前缀**：排除集使用 `EX-xxxx`（与纳入集 `ST-xxxx` 命名空间分离，
+  两表各自连续编号，避免"同一个 ST 号在不同表指向不同研究"的混淆）。
 
 ### 10.7 screening_log — 筛选日志（PRISMA 账本）
 

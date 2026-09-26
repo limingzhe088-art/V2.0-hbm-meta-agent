@@ -86,14 +86,12 @@ def build_lists(ft_rows: list[dict], records: list[dict], ta_rows: list[dict],
             f"允许编码：{', '.join(spec['exclusion_reasons'])}。")
 
     rec_by_id = {r.get("record_id", ""): r for r in records}
-    included: list[dict] = []
-    excluded: list[dict] = []
-    for seq, r in enumerate(sorted(ft_rows,
-                                   key=lambda x: x.get("record_id", "")), start=1):
+    included_rows: list[dict] = []
+    excluded_rows: list[dict] = []
+    for r in sorted(ft_rows, key=lambda x: x.get("record_id", "")):
         rid = r.get("record_id", "")
         meta = rec_by_id.get(rid, {})
         base = {
-            "study_id": f"ST-{seq:04d}",
             "record_id": rid,
             "title": meta.get("title", ""),
             "first_author": first_author(meta.get("authors", "")),
@@ -122,12 +120,24 @@ def build_lists(ft_rows: list[dict], records: list[dict], ta_rows: list[dict],
         decision = normalize_text(r.get("human_final_decision", ""))
         if decision == "include":
             base["screening_status"] = "included_fulltext"
-            included.append(base)
+            included_rows.append(base)
         else:
             base["screening_status"] = "excluded_fulltext"
             base["exclusion_reason"] = normalize_text(
                 r.get("human_final_reason_code", ""))
-            excluded.append(base)
+            excluded_rows.append(base)
+    # study_id：纳入集 ST-xxxx（进入论文与 S3 的命名空间）；
+    # 排除集 EX-xxxx（独立前缀，避免与纳入编号冲突）。各自连续、确定性。
+    included = []
+    for i, base in enumerate(included_rows, start=1):
+        base["study_id"] = f"ST-{i:04d}"
+        ordered = {k: base[k] for k in INCLUDED_FIELDS}
+        included.append(ordered)
+    excluded = []
+    for i, base in enumerate(excluded_rows, start=1):
+        base["study_id"] = f"EX-{i:04d}"
+        ordered = {k: base[k] for k in EXCLUDED_FIELDS}
+        excluded.append(ordered)
 
     # ── screening_log（PRISMA 中间数据）───────────────────────────────
     ta_human = {"proceed_to_fulltext": 0, "exclude": 0, "uncertain": 0}

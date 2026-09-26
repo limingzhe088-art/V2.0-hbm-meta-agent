@@ -1,0 +1,9 @@
+record_id,fulltext_available,confirmed_article_type,has_human_samples,analytes_reported,has_usable_concentration,ai_screening_decision,ai_reason_code,human_final_decision,human_final_reason_code,meta_disposition
+R001,TRUE,human_hbm_original,TRUE,bisphenol a,TRUE,include_candidate,,include,,include
+R002,TRUE,human_hbm_original,TRUE,bisphenol a,TRUE,include_candidate,,include,,include
+R004,TRUE,human_hbm_original,TRUE,bisphenol a,TRUE,include_candidate,,include,,include
+R005,TRUE,human_hbm_original,TRUE,bisphenol a,TRUE,include_candidate,,include,,include
+R006,TRUE,human_hbm_original,TRUE,bisphenol a,TRUE,include_candidate,,include,,include
+R009,TRUE,human_hbm_original,TRUE,bisphenol a,TRUE,include_candidate,,exclude,duplicate_cohort,exclude
+R015,TRUE,human_hbm_original,TRUE,bisphenol a,TRUE,include_candidate,,include,,include
+R017,TRUE,human_hbm_original,TRUE,bisphenol a,FALSE,suggest_exclude,no_usable_values,exclude,no_usable_values,exclude

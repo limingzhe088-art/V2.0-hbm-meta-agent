@@ -1,0 +1,9 @@
+metric,value
+total_records,20
+groups_exact_doi,1
+groups_exact_pmid,0
+groups_fuzzy,1
+records_flagged_duplicate,1
+records_flagged_suspected,2
+records_output_unique,19
+records_pending_human,2

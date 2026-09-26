@@ -1,0 +1,3 @@
+study_id,record_id,title,first_author,year,doi,country,population,matrix,analyte,screening_status,human_gate_status,meta_disposition,exclusion_reason
+EX-0001,R009,Urinary bisphenol A and thyroid hormone levels in Chinese adults: a repeated-measures study,Zhou F,2020,10.1234/demo.009,,,,,excluded_fulltext,human_confirmed,exclude,duplicate_cohort
+EX-0002,R017,"Urinary bisphenol A levels in preschool children from rural Sichuan, China: seasonal variation",Yang K,2024,10.1234/demo.017,,,,,excluded_fulltext,human_confirmed,exclude,no_usable_values

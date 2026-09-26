@@ -1,0 +1,19 @@
+record_id,ai_article_type,ai_confidence,ai_screening_decision,ai_reason_code,ai_evidence_quote,human_decision,human_reason_code
+R001,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R002,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R004,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R005,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R006,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R009,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R015,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R017,human_hbm_original,high,proceed_to_fulltext,auto_hbm_keywords,title_any:urinary,proceed_to_fulltext,
+R007,review,high,suggest_exclude,auto_review_keywords,title_any:review,exclude,review_or_comment
+R011,review,high,suggest_exclude,auto_review_keywords,title_any:meta-analysis,exclude,review_or_comment
+R014,review,high,suggest_exclude,auto_review_keywords,title_any:review,exclude,review_or_comment
+R010,animal_study,high,suggest_exclude,auto_animal_keywords,title_any:rats,exclude,not_human_study
+R012,animal_study,high,suggest_exclude,auto_animal_keywords,title_any:mice,exclude,not_human_study
+R013,animal_study,high,suggest_exclude,auto_animal_keywords,title_any:rats,exclude,not_human_study
+R008,in_vitro_study,high,suggest_exclude,auto_in_vitro_keywords,title_any:cell line,exclude,not_human_study
+R016,in_vitro_study,high,suggest_exclude,auto_in_vitro_keywords,title_any:in vitro,exclude,not_human_study
+R019,human_non_hbm,high,uncertain,auto_human_non_hbm_keywords,title_any:thermal paper,uncertain,
+R020,human_non_hbm,high,uncertain,auto_human_non_hbm_keywords,title_any:dietary,uncertain,

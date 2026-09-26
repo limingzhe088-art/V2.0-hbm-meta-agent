@@ -203,6 +203,14 @@ REQUIRED_SHIPPED = [
     "skills/S2-screening-quality/templates/included_studies_template.csv",
     "skills/S2-screening-quality/templates/excluded_studies_template.csv",
     "skills/S2-screening-quality/templates/screening_log_template.csv",
+    "examples/bpa-china-demo/project.yaml",
+    "examples/bpa-china-demo/01-search/source_summary.csv",
+    "examples/bpa-china-demo/01-search/raw_records_example.csv",
+    "examples/bpa-china-demo/01-search/pubmed_export.ris",
+    "examples/bpa-china-demo/01-search/wos_export.ris",
+    "examples/bpa-china-demo/01-search/scopus_export.ris",
+    "examples/bpa-china-demo/02-screening/title_abstract_screening.csv",
+    "examples/bpa-china-demo/03-extraction/master_table_EXAMPLE.csv",
     "skills/S3-extraction-standardization/templates/extraction_template.csv",
     "skills/S4-unit-statistic-conversion/templates/conversion_trace.csv",
     "skills/S5-weighted-pooling-edi/templates/edi_results_OUTPUT_example.csv",
@@ -290,6 +298,17 @@ def step_repo_cleanliness(verbose: bool) -> tuple[bool, list[str]]:
     return r.returncode == 0, notes
 
 
+def step_e2e_demo(verbose: bool) -> tuple[bool, list[str]]:
+    """BPA 合成案例端到端：S1 解析/合并 → S2 全链路 → S2→S3 交接 + 快照比对。"""
+    p = ROOT / "tests/test_e2e_bpa_demo.py"
+    r = subprocess.run([sys.executable, str(p)], cwd=str(ROOT),
+                       capture_output=True, timeout=600)
+    out = (r.stdout or "").decode("utf-8", "replace")
+    tail = out.strip().splitlines()[-1] if out.strip() else ""
+    ok = r.returncode == 0 and "E2E 通过" in out
+    return ok, [f"{'✅' if ok else '❌'} test_e2e_bpa_demo  {tail[:60]}"]
+
+
 STEPS = [
     ("1  全部脚本 --self-test", step_selftests),
     ("2  模板与实现一致性", step_gen_templates),
@@ -298,6 +317,7 @@ STEPS = [
     ("5  源码卫生（探针/硬编码/兜底）", step_hygiene),
     ("6  随包文件已入库（防漏提交）", step_shipped_files),
     ("7  仓库洁净度（防字节码/CRLF）", step_repo_cleanliness),
+    ("8  E2E：BPA 合成案例（S1→S2→S3 交接）", step_e2e_demo),
 ]
 
 

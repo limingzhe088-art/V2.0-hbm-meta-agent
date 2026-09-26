@@ -1,0 +1,231 @@
+# =============================================================================
+# bpa-china-demo — 中国一般人群双酚A（BPA）内暴露水平评估（合成演示）
+#
+# ★★ 本案例是合成演示（SYNTHETIC DEMO）★★
+#   - 所有文献题录、作者、DOI、数值均为虚构，仅用于开发验证与 CI 测试
+#   - 课题名：Bisphenol A exposure in Chinese general population (synthetic demo)
+#   - 用法：以本文件为起点复制并修改；不要把真实课题数据放进本目录
+#
+# 结构说明：
+#   meta / scope / analysis 三段是 **课题声明区块**（当前脚本不读取，
+#   仅向使用者传达课题边界；analysis.pooling_method=random_effects 为
+#   v2.1 规划项，当前 S5 实现样本量加权合并 —— 详见 README.md）。
+#   project / period_scheme / region_map / unit_policy / standardization /
+#   search / screening 是脚本实际消费的配置。
+# =============================================================================
+meta:
+  project_id: bpa-china-demo
+  version: "2.0.0"
+  description: "Bisphenol A exposure in Chinese general population (synthetic demo)"
+
+scope:
+  analytes:
+    - BPA
+    - bisphenol A
+    - BPAF
+    - BPF
+    - BPS
+  matrices:
+    - urine
+  population_keywords:
+    - general population
+    - adults
+    - children
+    - pregnant women
+  countries:
+    - China
+  time_range:
+    start_year: 2005
+    end_year: 2024
+
+project:
+  name: "BPA exposure in Chinese general population (synthetic demo)"
+  analyte: "BPA"
+  country: "China"
+  matrix_scope: ["Urine"]
+  config_version: "2.0.0"
+  contract_version: "1.0.0"
+
+period_scheme:
+  name: "demo_three_era"
+  boundaries:
+    - {label: "2005-2012", start: 2005, end: 2012}
+    - {label: "2013-2018", start: 2013, end: 2018}
+    - {label: "2019-2024", start: 2019, end: 2024}
+  freeze_date: "2026-09-26"
+  boundary_policy: "inclusive"
+  out_of_range: "exclude"
+  representative_year_rule: "start"
+
+region_map:
+  Southwest: ["四川省", "云南省", "贵州省", "重庆市", "西藏自治区"]
+  Northwest: ["陕西省", "甘肃省", "青海省", "宁夏回族自治区", "新疆维吾尔自治区"]
+  North: ["北京市", "天津市", "河北省", "山西省", "内蒙古自治区"]
+  Central: ["河南省", "湖北省", "湖南省"]
+  East: ["上海市", "江苏省", "浙江省", "安徽省", "福建省", "江西省", "山东省", "台湾省"]
+  South: ["广东省", "广西壮族自治区", "海南省", "香港特别行政区", "澳门特别行政区"]
+  Northeast: ["辽宁省", "吉林省", "黑龙江省"]
+
+# BPA 尿中常见报告单位：体积浓度（μg/L / ng/mL）与肌酐校正（μg/g Cr）。
+# 本 demo 的合并目标单位取体积浓度 ug/L；肌酐校正记录走 S4 换算。
+unit_policy:
+  Urine: {target: "ug/L"}
+  default_conflict_resolution: "prefer_creatinine_corrected"
+
+standardization:
+  median_to_gm_strategy: "as_gm"
+  wan_variant: "minus"
+  creatinine_path_mode: "CC_direct"
+
+weighting:
+  method: "sample_size"
+  log_base: "natural"
+  percentile_method: "weighted"
+
+validation:
+  verified_ratio_threshold: 0.90
+
+urine_reference:
+  source: "ICRP Publication 89"
+  table:
+    - {population_group: "Infant",     age: 1,  ce_g_day: 0.11,  volume_l_day: 0.4,  creat_g_l: 0.275}
+    - {population_group: "Adults",     age: 18, ce_g_day: 1.35,  volume_l_day: 1.4,  creat_g_l: 0.964}
+    - {population_group: "Adult_Male", age: 18, sex: "Male",   ce_g_day: 1.7,  volume_l_day: 1.6, creat_g_l: 1.063}
+    - {population_group: "Adult_Female", age: 18, sex: "Female", ce_g_day: 1.0, volume_l_day: 1.2, creat_g_l: 0.833}
+    - {population_group: "Minors",     age: null, ce_g_day: 0.925, volume_l_day: 1.05, creat_g_l: 0.815}
+    - {population_group: "Pregnant",   age: null, sex: "Female", ce_g_day: 1.275, volume_l_day: 2.0, creat_g_l: 0.638, source: "NHANES"}
+
+edi:
+  absorption_fraction_ABS: 0.7
+  body_weight:
+    Adults: 60.0
+    Pregnant: 60.0
+    Minors: 20.0
+    Elderly: 60.0
+  urine_route:
+    method_primary: "creatinine_excretion"
+    method_secondary: "urine_volume"
+  blood_route:
+    vd_l_per_kg: 2.0
+    tau_day: 1.0
+    formula: "(BAs * Vd) / (ABS * tau)"
+    interpretation: "exploratory"
+  cordblood_route:
+    enabled: false
+    reason: "缺乏胎儿/新生儿药代动力学参数 → 方案 A：跳过并计数"
+
+# ── S1 检索策略 ─────────────────────────────────────────────────────
+# search_string / records_exported / export_file 是 GATE-1 人工登记位；
+# 权威执行记录见 01-search/source_summary.csv。
+search:
+  databases:
+    - name: PubMed
+      search_string: "(bisphenol A[Title/Abstract] OR BPA[Title/Abstract]) AND (China[Title/Abstract] OR Chinese[Title/Abstract]) AND (urinary[Title/Abstract] OR urine[Title/Abstract] OR biomonitoring[Title/Abstract])"
+      records_exported: 342
+      export_format: ris
+      export_file: "01-search/pubmed_export.ris"
+    - name: "Web of Science"
+      search_string: "TS=(bisphenol A OR BPA) AND TS=(China OR Chinese) AND TS=(urinary OR urine OR biomonitoring)"
+      records_exported: 287
+      export_format: ris
+      export_file: "01-search/wos_export.ris"
+    - name: Scopus
+      search_string: "TITLE-ABS-KEY((bisphenol A OR BPA) AND (China OR Chinese) AND (urinary OR urine OR biomonitoring))"
+      records_exported: 391
+      export_format: ris
+      export_file: "01-search/scopus_export.ris"
+  date_range:
+    start_year: 2005
+    end_year: 2024
+  language_filter: [en, zh]
+  analytes:
+    - name: "bisphenol A"
+      synonyms: ["bisphenol A", "BPA", "4,4'-dihydroxy-2,2-diphenylpropane"]
+      synonyms_zh: ["双酚A", "双酚A"]
+  matrices:
+    - name: "urine"
+      synonyms: ["urine", "urinary"]
+      synonyms_zh: ["尿", "尿液"]
+  exposure_terms: ["biomonitoring", "internal exposure", "exposure assessment"]
+  population_keywords: ["general population", "adults", "children", "pregnant women",
+                        "residents"]
+  exclusion_terms:
+    animal: ["mice", "rats", "in vivo"]
+    cell: ["in vitro", "cell line"]
+    clinical: ["case report"]
+
+# ── S2 筛选质控 ─────────────────────────────────────────────────────
+screening:
+  dedup:
+    similarity_threshold: 0.85
+    author_match_required: true
+    year_tolerance: 0
+    match_levels:
+      - {level: 1, method: doi_exact}
+      - {level: 2, method: pmid_exact}
+      - {level: 3, method: title_author_year_fuzzy}
+  min_text_chars: 40
+  analyte_terms: ["bisphenol a", "bpa"]
+  article_types:
+    - human_hbm_original
+    - human_non_hbm
+    - review
+    - animal_study
+    - in_vitro_study
+    - methodology
+    - policy_or_comment
+    - other
+    - insufficient_info
+  meta_analysis_disposition:
+    - include
+    - exclude
+    - background_only
+    - citation_tracking_only
+    - uncertain
+  type_decision_map:
+    human_hbm_original: "proceed_to_fulltext"
+    human_non_hbm: "uncertain"
+    review: "suggest_exclude"
+    animal_study: "suggest_exclude"
+    in_vitro_study: "suggest_exclude"
+    methodology: "uncertain"
+    policy_or_comment: "suggest_exclude"
+    other: "uncertain"
+    insufficient_info: "uncertain"
+  classification_rules:
+    review_keywords: [review, meta-analysis, systematic review]
+    animal_keywords: [rats, mouse, mice, animal]
+    in_vitro_keywords: [cell line, in vitro, cell culture]
+    hbm_keywords: [biomonitoring, urinary, urine, blood, serum]
+    human_non_hbm_keywords: [dietary, questionnaire, thermal paper, dermal,
+                             dust, air]
+  exclusion_reason_codes:
+    - not_human_study
+    - wrong_analyte
+    - no_hbm_data
+    - no_usable_values
+    - wrong_population
+    - wrong_year
+    - duplicate_cohort
+    - review_or_comment
+    - conference_abstract
+    - fulltext_unavailable
+    - insufficient_info
+  fulltext_rules:
+    human_sample_terms: ["participants", "subjects", "residents", "pregnant",
+                         "children", "adults", "newborns", "volunteers",
+                         "women", "men"]
+    concentration_stat_terms: ["geometric mean", "arithmetic mean", "median",
+                               "95% ci", "standard deviation", "ug/l", "μg/l",
+                               "ng/ml", "μg/g", "ng/g", "ug/g"]
+
+# ── 课题声明：分析口径（当前脚本不读取本区块）───────────────────────
+# target_statistic / pooling_method 为 v2.1 规划项：当前 S5 实现为
+# 样本量加权的固定效应式合并（GM/GSD），逆方差加权见 STEP4-TODO F4。
+analysis:
+  target_statistic: geometric_mean
+  pooling_method: random_effects
+  heterogeneity_thresholds:
+    i2_low: 25
+    i2_moderate: 50
+    i2_high: 75

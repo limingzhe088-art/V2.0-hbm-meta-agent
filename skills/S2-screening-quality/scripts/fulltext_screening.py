@@ -63,7 +63,7 @@ for _p in (str(_ROOT / "shared"), str(Path(__file__).resolve().parent)):
 try:
     from record_schema import RECORD_FIELDS, read_records_csv  # noqa: E402
     from screening_schema import (  # noqa: E402  ★ S2 单一来源
-        AI_FT_DECISIONS, FT_FIELDS, HUMAN_TA_DECISIONS, ConfigError,
+        AI_FT_DECISIONS, FT_FIELDS, HUMAN_TA_DECISIONS, TA_FIELDS, ConfigError,
         load_screening_config, normalize_text, write_csv_dicts,
     )
     from classify_articles import classify_text  # noqa: E402  复用同一规则引擎
