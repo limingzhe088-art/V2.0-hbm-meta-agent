@@ -27,7 +27,9 @@ fulltext_screening.py — 全文层 AI 复筛（S2-C：AI 出证据与建议，�
   fulltext_screening.csv
     record_id, fulltext_available, confirmed_article_type, has_human_samples,
     analytes_reported, has_usable_concentration, ai_screening_decision,
-    ai_reason_code, human_final_decision(空), human_final_reason_code(空)
+    ai_reason_code, human_final_decision(空), human_final_reason_code(空),
+    meta_disposition(空，人的字段：include/exclude/background_only/
+    citation_tracking_only/uncertain，闭集来自 screening.meta_analysis_disposition)
   被排除的记录不物理删除（GATE-S2c 后由 generate_inclusion_list 汇总）。
 
 用法
@@ -222,12 +224,14 @@ def build_ft_rows(ta_rows: list[dict], records: list[dict], spec: dict,
             meta = {}
         fpath = find_fulltext(fulltext_dir, rid) if fulltext_dir.exists() else None
         if fpath is None:
+            # 全文不可得 ≠ 不符合纳入标准：标 uncertain + 专用编码，
+            # 交人工处置（PRISMA 单列 "reports not retrieved"）
             row = {
                 "record_id": rid, "fulltext_available": "FALSE",
                 "confirmed_article_type": "", "has_human_samples": "",
                 "analytes_reported": "", "has_usable_concentration": "",
                 "ai_screening_decision": "uncertain",
-                "ai_reason_code": "insufficient_info",
+                "ai_reason_code": "fulltext_unavailable",
             }
             stats["fulltext_unavailable"] += 1
         else:
@@ -236,7 +240,11 @@ def build_ft_rows(ta_rows: list[dict], records: list[dict], spec: dict,
                                         text, spec, period_range)
             row = {"record_id": rid, **analyzed}
             stats["fulltext_assessed"] += 1
-        row.update(human_final_decision="", human_final_reason_code="")
+        # meta_disposition 是人的字段（定量处理意见：include/exclude/
+        # background_only/citation_tracking_only/uncertain，闭集来自
+        # project.yaml → screening.meta_analysis_disposition）；AI 不代填
+        row.update(human_final_decision="", human_final_reason_code="",
+                   meta_disposition="")
         rows.append(row)
     stats["ai_include_candidate"] = sum(
         1 for r in rows if r["ai_screening_decision"] == "include_candidate")
@@ -393,11 +401,13 @@ def run_self_test() -> int:
     empty_dir = tmp_parent / "nope"
     rows2, stats2 = build_ft_rows(ta_ok, [dict(r) for r in FIXTURE_RECORDS],
                                   spec, (1980, 2024), empty_dir)
-    check("全文目录不存在 → 全部 unavailable + uncertain",
+    check("全文目录不存在 → 全部 unavailable + uncertain（专用编码）",
           all(r["fulltext_available"] == "FALSE"
               and r["ai_screening_decision"] == "uncertain"
-              and r["ai_reason_code"] == "insufficient_info" for r in rows2))
+              and r["ai_reason_code"] == "fulltext_unavailable" for r in rows2))
     check("unavailable 计数正确", stats2["fulltext_unavailable"] == 2)
+    check("meta_disposition 列存在且 AI 留空（人的字段）",
+          all(r["meta_disposition"] == "" for r in rows + rows2))
 
     print("\n[5] HTML 解析与 conference 词")
     html = ("<html><script>var x=1;</script><body><p>Participants: adults.</p>"

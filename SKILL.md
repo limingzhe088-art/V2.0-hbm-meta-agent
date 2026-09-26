@@ -77,37 +77,49 @@ metadata:
 ```
 hbm-meta/
 ├── SKILL.md                    本文件：总编排 + 子技能加载规则
-├── agent/                      主 Agent 运行时与编排规则
-│   ├── routing.md              ★ 6 个子 Agent 路由表 + 权限原则（进入流程前必读）
-│   ├── main-agent.md           编排人格 + 闸门职责
-│   ├── orchestration.md        9 阶段流程图与状态转移
-│   ├── state-schema.json       项目状态文件 schema（断点续跑）
-│   └── decision-order.md       三级人工介入优先级
+├── agent/
+│   └── routing.md              ★ 6 个子 Agent 路由表 + 权限原则（进入流程前必读）
 ├── shared/                     ★ 跨技能共享资产（其他一切的依赖）
-│   ├── data-contract.md        主表契约：字段定义、单位口径、快照指纹、project.yaml 规范
-│   ├── quality-gates.md        GATE-0…GATE-5 六道人工闸门定义与状态机
-│   ├── human-verification-protocol.md  AI 提取的强制人工复核机制
-│   ├── reproducibility-rules.md 快照/版本/命名规范
-│   └── glossary.md             中英术语表
-├── agents/                     6 个子 Agent 定义（A1–A6）
-├── skills/                     6 个可独立触发的子技能
-│   ├── S1-search-strategy/
-│   ├── S2-screening-quality/
+│   ├── data-contract.md        主表契约：字段定义、单位口径、快照指纹、
+│   │                           project.yaml 规范、§10 S1/S2 阶段数据表
+│   ├── quality-gates.md        六道人工闸门 + S2 三道阶段闸门（GATE-S2a/b/c）
+│   ├── project_config.py       唯一配置加载入口（缺失/非法 → 硬错误）
+│   ├── inferred_flags.py       inferred_flags 标记字典单一来源
+│   ├── record_schema.py        S1 统一题录字段单一来源
+│   └── snapshot.py             快照指纹
+├── skills/                     6 个可独立触发的子技能（全部已实现）
+│   ├── S1-search-strategy/     检索式草稿 + 题录解析（RIS/EndNote/BibTeX）+ 合并
+│   ├── S2-screening-quality/   AI 预处理（去重/分类/全文筛）+ 人工闸门筛选
 │   ├── S3-extraction-standardization/
 │   ├── S4-unit-statistic-conversion/
 │   ├── S5-weighted-pooling-edi/
 │   └── S6-qc-audit-revision/
-│     每个子技能统一结构：SKILL.md + references/ + scripts/ + templates/
+│     每个子技能统一结构：SKILL.md + references/ + scripts/（含 --self-test）+ templates/
 ├── templates/
-│   ├── project-scaffold/       项目目录骨架（01-search … 11-revision）
-│   └── docs/                   6 份过程文档空模板
-├── examples/                   脱敏范例
-├── scripts/                    通用化 Python 脚本（去硬编码，CLI + --self-test）
+│   └── project.yaml            项目配置模板（含 search / screening 条件必需区块）
+├── examples/                   脱敏范例（arsenic-china-1980-2024）
+├── tests/                      ci_local / verify_structure / verify_consistency / …
 ├── .github/workflows/          CI：schema 校验 + 脚本自检 + frontmatter 校验
 └── requirements.txt            Python 环境（单栈，无 R 依赖）
 ```
 
-**目录职责一句话版**：`shared/` 放规则，`agent/` 放编排，`agents/` 放执行者，`skills/` 放知识，`templates/` 放脚手架，`examples/` 放范例，`scripts/` 放工具。
+**目录职责一句话版**：`shared/` 放规则，`agent/` 放编排，`skills/` 放知识+工具，`templates/` 放配置模板，`examples/` 放范例，`tests/` 放守门。
+
+### 3.1 子技能实现状态
+
+| 子技能 | 状态 | 脚本（均含 `--self-test`） |
+|---|---|---|
+| S1-search-strategy | ✅ 已实现（v2） | generate_search_terms / parse_ris / parse_enl / parse_bibtex / merge_sources（+ shared/record_schema.py） |
+| S2-screening-quality | ✅ 已实现（v2） | normalize_records / dedup_records / classify_articles / screening_summary / fulltext_screening / generate_inclusion_list / generate_prisma（+ screening_schema.py） |
+| S3-extraction-standardization | ✅ 已实现（v1.0.0） | validate_table |
+| S4-unit-statistic-conversion | ✅ 已实现（v1.0.0） | wan_convert / convert_units |
+| S5-weighted-pooling-edi | ✅ 已实现（v1.0.0） | weighted_gm / edi_calculation / gen_templates（全包唯一模板生成器） |
+| S6-qc-audit-revision | ✅ 已实现（v1.0.0） | audit_numbers / dedup_screen / sensitivity / verify_dois / citation_crosswalk |
+
+**已知缺口**（诚实登记，避免误导使用者）：
+- AHRQ 11 条质量评分暂无脚本自动化（人工/AI 协助填表；v1.0.0 起即为人工环节）
+- S2 边界人群疑似清单（`flag_occupational` 等四类标记的自动扫描）暂未脚本化，
+  由人工在 GATE-2 按 `data-contract.md` §3.4 逐条裁决
 
 ---
 
@@ -165,20 +177,21 @@ hbm-meta/
 ## 6. 快速上手（使用者的第一步）
 
 ```bash
-# 1. 复制项目脚手架到你的工作目录
-cp -r templates/project-scaffold/ /path/to/my-meta-project/
+# 1. 建立项目工作目录（骨架目录按需创建；工作包不强制复制脚手架）
+mkdir -p /path/to/my-meta-project/{01-search,02-screening,03-extraction,04-standardization,05-pooling-edi,06-qc-audit,07-references,08-manuscript,09-presentation,10-reference-tools,11-revision}
 cd /path/to/my-meta-project
 
 # 2. 复制并填写项目配置（这是唯一的强制配置步骤）
-cp templates/project.yaml ./project.yaml
+cp <skill_root>/templates/project.yaml ./project.yaml
 #    必填：analyte / country / matrix_scope / period_scheme / region_map / unit_policy
-#    可改：edi 参数、weighting 口径
+#    条件必填（用 S1 时）：search 区块；用 S2 时：screening 区块（缺失即硬错误）
+#    可改：edi 参数、weighting 口径、分类规则、排除词表
 
 # 3. 安装 Python 环境
 pip install -r requirements.txt
 
 # 4. 校验配置与契约一致性
-python scripts/validate_table.py --config project.yaml --check-config-only
+python skills/S3-extraction-standardization/scripts/validate_table.py --config project.yaml --check-config-only
 
 # 5. 跑 GATE-0（生成 charter + 冲突预判清单，然后停下来等人确认）
 #    在 Agent 中说出："开始内暴露 meta 分析，暴露物是 PFOA"
@@ -189,11 +202,13 @@ python scripts/validate_table.py --config project.yaml --check-config-only
 
 **最小可用路径**：如果你已有符合契约的主表草案，只想做 **S3 + S4 + S5**（提取校对 + 标准化 + 加权合并 + EDI），可以：
 
-1. 复制 `templates/project-scaffold/` 到工作目录
-2. 填写 `project.yaml`，把 `input.master_table` 指向你的表
-3. 直接跳到上面第 4 步跑校验，然后加载 **S4** 子技能
+1. 建立工作目录并填写 `project.yaml`
+2. 把 `input.master_table` 指向你的表
+3. 直接跑 `validate_table.py` 校验，然后加载 **S4** 子技能
 
-**不需要跑 S1/S2 的检索与筛选**。若主表尚未逐条校对，先加载 **S3** 完成 GATE-3。
+**不需要跑 S1/S2 的检索与筛选**（`project.yaml` 不含 search/screening 区块即可，
+两个区块均为条件必需——只在用 S1/S2 时才必须配置）。若主表尚未逐条校对，
+先加载 **S3** 完成 GATE-3。
 
 **最短检查清单**（开始前确认）
 - [ ] 我的研究对象是**人体生物样本浓度**（不是效应量、不是环境样本浓度）
@@ -217,7 +232,7 @@ python scripts/validate_table.py --config project.yaml --check-config-only
 ## 8. 相关文件
 
 - `agent/routing.md` — 6 个子 Agent 的路由表与权限原则
-- `shared/data-contract.md` — 主表契约（先读这个）
-- `shared/quality-gates.md` — 六道人工闸门
-- `agent/orchestration.md` — 9 阶段详细流程
-- `agent/decision-order.md` — 三级人工介入优先级
+- `shared/data-contract.md` — 主表契约 + §10 S1/S2 阶段数据表（先读这个）
+- `shared/quality-gates.md` — 六道人工闸门 + GATE-S2a/b/c 阶段闸门
+- `shared/project_config.py` — 唯一配置加载入口
+- 决策顺序：见 `agent/routing.md` §3.3（数据真实性 → 人群边界 → 合并合理性）

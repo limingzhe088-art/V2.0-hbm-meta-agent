@@ -218,10 +218,22 @@
 
 **触发条件**：S1 完成，`all_raw_records.csv` 已合并。
 **AI 产出物**：`all_raw_records.csv` + `source_summary.csv`（检索式/命中数由人工回填）。
-**人工裁决项**：数据库检索已完成；导出文件完整（命中数 vs 导出数差异可解释）；
-各库检索式原文已留存；未预先注册声明（或 PROSPERO 编号）已确认。
-**脚本检查点**：输入 CSV 表头与 RECORD_FIELDS 一致、record_id 唯一（`normalize_records.py` 强制）。
-**未通过信号**：任一库缺检索式原文；hit_count 与 exported_count 差异无法解释。
+**脚本验证命令**（检查点；非零退出码 = 未过）
+
+```bash
+# 表头与 record_id 唯一性校验 + 字段完整性（GATE-S2a 的机器检查点）
+python skills/S2-screening-quality/scripts/normalize_records.py \
+    --input 01-search/all_raw_records.csv \
+    --output 02-screening/normalized_records.csv --validate
+```
+
+**人工确认清单**
+- [ ] 数据库检索已完成（各库检索式原文 + 日期 + 命中数齐备）
+- [ ] 导出文件完整（hit_count vs exported_count 差异可解释，已写入 note）
+- [ ] 各库导出格式与字段集已登记（含摘要字段）
+- [ ] 未预先注册的诚实声明 / PROSPERO 编号已确认
+
+**未通过信号**：任一库缺检索式原文；命中数与导出数差异无法解释。
 
 ### GATE-S2b · 题目摘要筛选后确认
 
@@ -229,11 +241,29 @@
 **AI 产出物**（只有建议与证据，没有结论）：`dedup_decisions.csv`（AI 保留建议 +
 疑似重复清单）、`title_abstract_screening.csv`（9 类文章类型 + 三值建议 +
 规则 id 与命中证据）、`screening_summary.csv`。
-**人工裁决项**：去重结果可接受（翻案任何 `duplicate`/`suspected_duplicate` 建议）；
-进入全文的文献集可接受；**AI 建议排除的记录也已复核**（漏筛检查）；uncertain 全部处置。
-**写入字段**（仅人工可写）：`human_decision`、`human_reason_code`、`cohort_id`（同队列聚簇）。
-**脚本检查点**：`human_decision` 无空值 —— `fulltext_screening.py` 启动时强制，
-存在空值即退出码 2。
+**脚本验证命令**（检查点；`fulltext_screening.py` 启动时强制）
+
+```bash
+# 汇总并显示 pending（human_decision 空值）计数
+python skills/S2-screening-quality/scripts/screening_summary.py \
+    --input 02-screening/title_abstract_screening.csv \
+    --config project.yaml --output 02-screening/screening_summary.csv
+
+# ★ 硬检查点：human_decision 有空值 → 退出码 2，拒绝进入全文筛
+python skills/S2-screening-quality/scripts/fulltext_screening.py \
+    --input 02-screening/title_abstract_screening.csv \
+    --records 02-screening/dedup_unique.csv --fulltext-dir 02-screening/fulltexts/ \
+    --config project.yaml --output 02-screening/fulltext_screening.csv
+```
+
+**人工确认清单**
+- [ ] 去重结果可接受（翻案了需要翻案的 `duplicate`/`suspected_duplicate` 建议）
+- [ ] 进入全文的文献集可接受（`human_decision = proceed_to_fulltext` 已逐条确认）
+- [ ] **AI 建议排除的记录也已复核**（漏筛检查；综述/方法学类重点抽查）
+- [ ] `uncertain` 记录全部处置（不得攒着不填）
+- [ ] 同队列聚簇已指定 `cohort_id`（与 GATE-2 衔接）
+
+**写入字段**（仅人工可写）：`human_decision`、`human_reason_code`、`cohort_id`。
 **未通过信号**：human_decision 存在空值；AI 排除记录未复核即放行。
 
 ### GATE-S2c · 全文筛选后确认
@@ -241,12 +271,56 @@
 **触发条件**：S2-C 全文筛完成，`fulltext_screening.csv` 已产出。
 **AI 产出物**：全文证据表（人体样本/分析物/统计量/年份命中）+ 三值建议 +
 排除编码建议（闭集）+ `fulltext_unavailable` 清单。
-**人工裁决项**：最终纳入/排除逐条定案（uncertain 必须处置）；排除原因按闭集填写；
-重复队列处理规则（指定 `cohort_id`，与 GATE-2 衔接）；背景文献与定量文献分离。
-**写入字段**（仅人工可写）：`human_final_decision`、`human_final_reason_code`。
-**脚本检查点**：`generate_inclusion_list.py` 强制 human_final_decision 全填、
-无 uncertain、排除编码在闭集内；`generate_prisma.py` 强制四条 PRISMA 恒等式平衡。
+**脚本验证命令**（检查点；越权/漏项 → 退出码 2，数字不平衡 → 退出码 1）
+
+```bash
+# ★ 硬检查点：human_final_decision 全填、无 uncertain、
+#   排除编码与 meta_disposition 在闭集内
+python skills/S2-screening-quality/scripts/generate_inclusion_list.py \
+    --input 02-screening/fulltext_screening.csv \
+    --records 02-screening/dedup_unique.csv \
+    --ta-screening 02-screening/title_abstract_screening.csv \
+    --config project.yaml --output-dir 02-screening/
+
+# ★ PRISMA 四条恒等式校验（不平衡 → 退出码 1，不产出流程图）
+python skills/S2-screening-quality/scripts/generate_prisma.py \
+    --input 02-screening/screening_log.csv --config project.yaml \
+    --output 02-screening/prisma_flow.md
+```
+
+**人工确认清单**
+- [ ] 最终纳入清单（included_studies.csv）逐条确认
+- [ ] 最终排除清单 + 排除原因（闭集内）逐条确认
+- [ ] `uncertain` / `fulltext_unavailable` 记录全部处置
+- [ ] 重复研究处理规则已定（`cohort_id`；与 GATE-2/GATE-5 去重策略一致）
+- [ ] 背景文献与定量分析文献已分离（`meta_disposition` 已填）
+- [ ] screening_log 数字与两份清单一致（PRISMA 对账通过）
+
+**写入字段**（仅人工可写）：`human_final_decision`、`human_final_reason_code`、
+`meta_disposition`。
 **未通过信号**：清单中混入未裁决记录；screening_log 数字对不上账。
+
+**通过后的状态标记**（`_state/gates.json`，由主 Agent 在人工明确确认后写入；
+子 Agent 无权写入——权限铁律 §2.4 不变）：
+
+```json
+{
+  "GATE-S2a": {"status": "passed", "by": "human", "at": "...",
+               "artifacts": ["01-search/all_raw_records.csv", "01-search/source_summary.csv"]},
+  "GATE-S2b": {"status": "passed", "by": "human", "at": "...", "decisions": 130,
+               "artifacts": ["02-screening/title_abstract_screening.csv",
+                              "02-screening/dedup_decisions.csv"]},
+  "GATE-S2c": {"status": "passed", "by": "human", "at": "...",
+               "included": 38, "excluded": 92,
+               "artifacts": ["02-screening/included_studies.csv",
+                            "02-screening/excluded_studies.csv",
+                            "02-screening/screening_log.csv"]}
+}
+```
+
+> 与 **GATE-2**（人群边界裁决）的关系：S2c 确认的是"筛选流程走完且人拍板"；
+> GATE-2 是契约级裁决门（`flag_occupational` 等四类边界标记 + `inclusion_decision`），
+> 在 S3 提取前由人工对边界人群记录逐条裁决。两者都通过才启动 A3。
 
 ---
 
@@ -261,6 +335,9 @@
   "gates": {
     "GATE-0": {"status": "passed", "by": "human", "at": "2026-01-10T09:00:00+08:00", "artifacts": ["project.yaml","00_charter.md"]},
     "GATE-1": {"status": "passed", "by": "human", "at": "2026-01-20T...", "artifacts": ["01-search/检索记录.csv"]},
+    "GATE-S2a": {"status": "passed", "by": "human", "at": "...", "artifacts": ["01-search/all_raw_records.csv"]},
+    "GATE-S2b": {"status": "passed", "by": "human", "at": "...", "decisions": 130, "artifacts": ["02-screening/title_abstract_screening.csv"]},
+    "GATE-S2c": {"status": "passed", "by": "human", "at": "...", "included": 38, "excluded": 92},
     "GATE-2": {"status": "passed", "by": "human", "at": "2026-07-19T...", "decisions": 130, "artifacts": ["...筛查报告.md"]},
     "GATE-3": {"status": "passed", "by": "human", "verified_ratio": 1.0, "records_edited": 412},
     "GATE-4": {"status": "passed", "by": "human", "at": "..."},

@@ -102,27 +102,56 @@ edi:
   cordblood_route:
     enabled: false
     reason: "缺乏胎儿/新生儿药代动力学参数 → 方案 A：跳过并计数"
-
 # =============================================================================
 # 检索策略（★ 条件必需区块：使用 S1 的 generate_search_terms.py 时必需，
 # 缺失即硬错误。其余脚本不读取本区块。）
 #
-# 本区块承载"检索词表"：暴露物/基质/人群/暴露评估词与排除词银行。
-# generate_search_terms.py 据此生成各数据库检索式草稿（DRAFT）；
-# 最终检索式、实际执行与命中数由人工完成并登记（GATE-1）。
-#
-# 字段说明：
-#   databases        —— 要草拟检索式的库；允许：PubMed/WebOfScience/Scopus/Embase/CNKI/Wanfang
-#   year_from/to     —— 发表年过滤窗口（与 period_scheme 的"采样年"分期是两回事）
-#   analytes/matrices —— 每项 {name, synonyms, [mesh], [synonyms_zh]}
-#                        mesh 供 PubMed/Embase 叙词；synonyms_zh 供中文库；缺失则
-#                        中文库输出"待人工补充"占位（脚本不编造中文词）
-#   exclusion_terms  —— 可选；四组 animal/cell/occupational/clinical
+# databases 两条形态（可混用）：
+#   - 字符串（纯库名）：generate_search_terms.py 据词表生成检索式草稿
+#   - 映射（如下）：name + 检索执行元数据。search_string / records_exported /
+#     export_file 是 **人工在 GATE-1 登记的执行记录位**；权威执行记录仍是
+#     source_summary.csv / 01-search/检索记录.csv（AI 不代填）。
+# date_range 为发表年过滤窗口 —— 与 period_scheme 的"采样年"分期是两回事。
+# language_filter：PubMed/WoS 草稿自动接入语言过滤（en/zh）。
+# analytes/matrices/exposure_terms/population_keywords/exclusion_terms 为
+# 检索词表（草稿原料）；synonyms_zh 供中文库，缺失则中文库输出"待人工补充"。
 # =============================================================================
 search:
-  databases: ["PubMed", "WebOfScience", "Scopus", "Embase", "CNKI", "Wanfang"]
-  year_from: 1980
-  year_to: 2024
+  databases:
+    - name: PubMed
+      search_string: ""
+      records_exported: 0
+      export_format: ris
+      export_file: ""
+    - name: "Web of Science"
+      search_string: ""
+      records_exported: 0
+      export_format: xml
+      export_file: ""
+    - name: Scopus
+      search_string: ""
+      records_exported: 0
+      export_format: ris
+      export_file: ""
+    - name: Embase
+      search_string: ""
+      records_exported: 0
+      export_format: ris
+      export_file: ""
+    - name: CNKI
+      search_string: ""
+      records_exported: 0
+      export_format: enl
+      export_file: ""
+    - name: Wanfang
+      search_string: ""
+      records_exported: 0
+      export_format: ris
+      export_file: ""
+  date_range:
+    start_year: 1980
+    end_year: 2024
+  language_filter: [en, zh]
   analytes:
     - name: "arsenic"
       mesh: ["Arsenic", "Arsenic Poisoning"]
@@ -162,14 +191,19 @@ search:
 # =============================================================================
 screening:
   dedup:
-    title_similarity_threshold: 0.85   # 词 bigram Jaccard 阈值；(0, 1]
-    author_match_required: true        # 模糊聚簇是否要求第一作者一致
-    year_tolerance: 0                  # 模糊聚簇允许的年份差（任一年份缺失则放行）
-  min_text_chars: 40                   # 题摘文本低于此长度 → insufficient_info
-  analyte_terms:                       # 分类与全文核对用的分析物词（小写匹配）
+    similarity_threshold: 0.85     # 词 bigram Jaccard 阈值；(0, 1]
+                                   # （别名 title_similarity_threshold，二选一）
+    author_match_required: true    # 模糊聚簇是否要求第一作者一致
+    year_tolerance: 0              # 模糊聚簇允许的年份差（任一年份缺失则放行）
+    match_levels:                  # 声明式级别清单；method 必须在已实现闭集内
+      - {level: 1, method: doi_exact}
+      - {level: 2, method: pmid_exact}
+      - {level: 3, method: title_author_year_fuzzy}
+  min_text_chars: 40               # 题摘文本低于此长度 → insufficient_info
+  analyte_terms:                   # 分类与全文核对用的分析物词（小写匹配）
     - "arsenic"
     - "砷"
-  article_types:                       # 文章类型闭集（含两个保留类型）
+  article_types:                   # 文章类型闭集（含两个保留类型）
     - human_hbm_original
     - human_non_hbm
     - review
@@ -179,7 +213,13 @@ screening:
     - policy_or_comment
     - other
     - insufficient_info
-  type_decision_map:                   # 类型 → 题摘 AI 建议（必须全覆盖）
+  meta_analysis_disposition:       # 定量处理意见闭集（included/excluded 清单的
+    - include                      # meta_disposition 列；"分类 ≠ 处理意见"——
+    - exclude                      # 综述可 background_only，动物实验可机制引用）
+    - background_only
+    - citation_tracking_only
+    - uncertain
+  type_decision_map:               # 类型 → 题摘 AI 建议（必须全覆盖）
     human_hbm_original: "proceed_to_fulltext"
     human_non_hbm: "uncertain"
     review: "suggest_exclude"
@@ -189,41 +229,46 @@ screening:
     policy_or_comment: "suggest_exclude"
     other: "uncertain"
     insufficient_info: "uncertain"
-  classification_rules:                # 有序规则：自上而下首中即判
-    - {id: review_title, type: review,
-       title_any: ["systematic review", "meta-analysis", "scoping review", "综述"]}
-    - {id: review_abstract, type: review,
-       abstract_any: ["systematic review", "meta-analysis"]}
-    - {id: animal_title, type: animal_study,
-       title_any: ["mice", "mouse", "rats", "zebrafish", "rabbits",
-                    "大鼠", "小鼠", "动物实验"]}
-    - {id: invitro_title, type: in_vitro_study,
-       title_any: ["in vitro", "cell line", "cell culture", "hepg2", "体外"]}
-    - {id: policy_title, type: policy_or_comment,
-       title_any: ["editorial", "commentary", "guideline", "policy", "述评", "指南"]}
-    - {id: method_title, type: methodology,
-       title_any: ["analytical method", "method validation", "determination of",
-                    "speciation", "检测方法"]}
-    - {id: hbm_title, type: human_hbm_original,
-       title_any: ["biomonitoring", "urinary", "blood", "cord blood",
-                    "internal exposure", "生物监测", "内暴露", "尿砷", "血砷"],
-       require_analyte: true}
-    - {id: hbm_abstract, type: human_hbm_original,
-       abstract_any: ["biomonitoring", "geometric mean", "urinary concentrations",
-                      "biological monitoring"],
-       require_analyte: true}
-  exclusion_reasons:                   # 全文排除原因闭集（判定标准见
-    - not_human_study                  #   skills/S2-screening-quality/references/exclusion_reasons.md）
-    - wrong_analyte
-    - no_hbm_data
+  classification_rules:            # 关键词组格式（v2 模板形态）：
+    review_keywords:               # 按固定顺序编译为 title_any 规则
+      - review                     # （review → animal → in_vitro → methodology
+      - meta-analysis              #   → policy → hbm），先命中先判。
+      - systematic review          # 亦支持有序规则列表格式（每条
+      - overview                   #   {id, type, title_any, abstract_any,
+    animal_keywords:               #   require_analyte}）——表达力更强，见
+      - rats                       #   skills/S2-screening-quality/SKILL.md。
+      - mouse                      # ⚠️ 动物词用 rats 而非 rat：子串匹配下
+      - mice                       #   "rat" 会误伤 rate / moderate 等词。
+      - animal
+      - in vivo
+      - rodent
+    in_vitro_keywords:
+      - cell line
+      - in vitro
+      - cell culture
+    hbm_keywords:
+      - biomonitoring
+      - urinary
+      - urine
+      - blood
+      - serum
+      - plasma
+      - breast milk
+      - cord blood
+      - hair
+  exclusion_reason_codes:          # 全文排除原因闭集（判定标准见
+    - not_human_study              #   skills/S2-screening-quality/references/
+    - wrong_analyte                #   exclusion_reasons.md）；insufficient_info
+    - no_hbm_data                  # 与 fulltext_unavailable 为保留编码（必含）
     - no_usable_values
     - wrong_population
     - wrong_year
     - duplicate_cohort
     - review_or_comment
     - conference_abstract
+    - fulltext_unavailable
     - insufficient_info
-  fulltext_rules:                      # 全文四问的词表
+  fulltext_rules:                  # 全文四问的词表
     human_sample_terms: ["participants", "subjects", "residents", "pregnant",
                          "children", "adults", "newborns", "volunteers",
                          "人群", "居民", "孕妇", "儿童", "受试者"]

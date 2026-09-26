@@ -105,7 +105,20 @@ def build_lists(ft_rows: list[dict], records: list[dict], ta_rows: list[dict],
             "analyte": "",       # 由 S3 提取回填
             "screening_status": "",
             "human_gate_status": "human_confirmed",
+            "meta_disposition": normalize_text(r.get("meta_disposition", "")),
         }
+        if base["meta_disposition"]:
+            if not spec["meta_analysis_dispositions"]:
+                raise ConfigError(
+                    f"`{rid}` 的 meta_disposition 非空，但 project.yaml 未配置 "
+                    "screening.meta_analysis_disposition 闭集 —— 无法校验，"
+                    "拒绝执行（不做默认值兜底）。")
+            if base["meta_disposition"] not in spec["meta_analysis_dispositions"]:
+                raise ConfigError(
+                    f"GATE-S2c 检查点未过：`{rid}` 的 meta_disposition="
+                    f"`{base['meta_disposition']}` 不在 "
+                    f"screening.meta_analysis_disposition 闭集内；"
+                    f"允许取值：{', '.join(spec['meta_analysis_dispositions'])}。")
         decision = normalize_text(r.get("human_final_decision", ""))
         if decision == "include":
             base["screening_status"] = "included_fulltext"
@@ -251,6 +264,26 @@ def run_self_test() -> int:
     ft_bad[1]["human_final_reason_code"] = "i_dont_like_it"
     expect_error("排除原因越界 → 拒绝",
                  lambda: build_lists(ft_bad, recs, ta, spec), "GATE-S2c")
+
+    print("\n[3b] meta_disposition 传递与闭集校验")
+    ft_disp = [dict(r) for r in ft]
+    ft_disp[0]["meta_disposition"] = "include"
+    ft_disp[1]["meta_disposition"] = "background_only"
+    inc2, exc2, _log2, _s2 = build_lists(ft_disp, recs, ta, spec)
+    check("meta_disposition 透传到 included/excluded 清单",
+          inc2[0]["meta_disposition"] == "include"
+          and any(r["meta_disposition"] == "background_only" for r in exc2))
+    ft_bad_disp = [dict(r) for r in ft]
+    ft_bad_disp[0]["meta_disposition"] = "maybe"
+    expect_error("meta_disposition 越界 → 拒绝",
+                 lambda: build_lists(ft_bad_disp, recs, ta, spec), "meta_disposition")
+    spec_nodisp = dict(spec)
+    spec_nodisp["meta_analysis_dispositions"] = []
+    ft_disp2 = [dict(r) for r in ft]
+    ft_disp2[0]["meta_disposition"] = "include"
+    expect_error("配置未声明闭集却填了 meta_disposition → 拒绝",
+                 lambda: build_lists(ft_disp2, recs, ta, spec_nodisp),
+                 "无法校验")
 
     print("\n[4] 结构")
     check("included 字段 = INCLUDED_FIELDS", list(included[0].keys()) == INCLUDED_FIELDS)

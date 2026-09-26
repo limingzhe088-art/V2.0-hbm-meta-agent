@@ -23,14 +23,18 @@
 
 **关键设计**：子 Agent 是"执行者"，子技能是"知识库"，两者**多对多解耦**——A4 同时调用 S4 与 S5；S6 同时服务 A5 与 A6。因此子技能可单独使用，无需整套流水线。
 
+> **实现状态（v2）**：S1–S6 六个子技能均已实现，各有含 `--self-test` 的脚本
+> （状态表见根 `SKILL.md` §3.1）。A1→S1、A2→S2 的输出契约已由脚本落地；
+> A2 的 AHRQ 11 条质量评分**暂无脚本自动化**（人工/AI 协助填表），登记为已知缺口。
+
 ---
 
 ## 1. 路由表
 
 | ID | 子 Agent | 职责 | 调用 Skill | 工具权限 | 输出契约 |
 |---|---|---|---|---|---|
-| **A1** | `search-agent` | 构造数据库特异性检索式、执行检索、记录命中数、跨库去重、产出检索充分性诊断 | **S1** | `Read` `Write` `Grep` `Glob` `WebFetch` `WebSearch`<br>**无 `Edit`** | `01-search/检索记录.csv`（库/检索式原文/日期/命中数）<br>`01-search/检索策略.md`<br>检索充分性诊断（含排除词过度杀伤预警） |
-| **A2** | `screening-agent` | 题摘筛 → 全文筛 → AHRQ 11 条质量评分 → 产出三类边界人群疑似清单 + 同队列聚簇清单 | **S2** | `Read` `Write` `Grep` `Glob`<br>**无 `Edit`** | `02-screening/` PRISMA 两阶段数字、`质量评分表.xlsx`、`疑似排除清单.md`、`同队列聚簇清单.md`<br>**不得写入** `inclusion_decision` 实体结论（只可写 `Pending`） |
+| **A1** | `search-agent` | 构造数据库特异性检索式、执行检索、记录命中数、跨库去重、产出检索充分性诊断 | **S1** | `Read` `Write` `Grep` `Glob` `WebFetch` `WebSearch`<br>**无 `Edit`** | `01-search/检索记录.csv`（库/检索式原文/日期/命中数）<br>`01-search/检索策略.md`<br>`01-search/all_raw_records.csv`（统一题录，经 `parse_ris/parse_enl/parse_bibtex` + `merge_sources`）<br>`01-search/source_summary.csv`（检索式/命中数**仅取自人工检索日志**）<br>检索充分性诊断（含排除词过度杀伤预警） |
+| **A2** | `screening-agent` | AI 预处理（规范化→三级去重→题摘分类→全文证据抽取）→ 产出疑似清单与建议，人工裁决后生成纳入/排除清单与 PRISMA 流程图 | **S2** | `Read` `Write` `Grep` `Glob`<br>**无 `Edit`** | `02-screening/` `dedup_decisions.csv`、`title_abstract_screening.csv`、`fulltext_screening.csv`、`included_studies.csv`、`excluded_studies.csv`、`screening_log.csv`、`prisma_flow.md`<br>**不得写入** `human_decision` / `human_final_decision` / `meta_disposition` 等 human 列（初始留空，仅人工可填） |
 | **A3** | `extraction-agent` | AI 初提数据 → 生成缺字段/可疑值清单与逐条核对任务表 → 在人工裁决后落库 | **S3**（+ **S4** 接口） | `Read` `Write` `Edit` `Grep` `Glob` `Bash`（限 `scripts/` 下工具，禁网络） | `03-extraction/{analyte}_{date}.xlsx` 主表草案<br>`缺字段清单`、`可疑值清单`、`逐条核对任务表`、`校对日志.md` |
 | **A4** | `statistics-agent` | 单位与统计量标准化（三级流程）→ 冻结主表并生成快照指纹 → 分层加权 GM/GSD → EDI → 制图数据 | **S4** + **S5** | `Read` `Write` `Edit` `Grep` `Glob` `Bash`（执行 Python 脚本） | `04-standardization/换算痕迹表.xlsx`、冻结主表<br>`05-pooling-edi/` 分层结果表、EDI 结果、图表数据 |
 | **A5** | `audit-agent` | 数值审计（手稿 vs 快照）、队列重复计数筛查、敏感性分析、DOI/Crossref 核验、引用对照 | **S6** | `Read` `Write` `Grep` `Glob` `Bash` `WebFetch`<br>**无 `Edit`** | `06-qc-audit/{02_数值审计对照表.md, 03_去重与纳入标准筛查报告.md, 敏感性报告.md}`<br>**只产出差异清单，不修改主表与稿件** |
@@ -255,8 +259,8 @@ compile(src, path, "exec")                    # 语法
 
 | 交接 | 上游产物 | 下游读取方式 | 校验 |
 |---|---|---|---|
-| A1 → A2 | `01-search/检索记录.csv` + 原始导出表 | 去重后进入题摘筛 | 命中数与标题数一致 |
-| A2 → A3 | 纳入研究清单 + `质量评分表` | 只对 `inclusion_decision=Include` 的研究提取 | 无 `Pending` 项 |
+| A1 → A2 | `01-search/all_raw_records.csv` + `source_summary.csv` + 原始导出表 | normalize → 三级去重后进入题摘分类 | 表头与 RECORD_FIELDS 一致（硬错误）；hit_count vs exported_count 对账 |
+| A2 → A3 | `02-screening/included_studies.csv`（GATE-S2c + GATE-2 通过）+ `excluded_studies.csv`（留存）+ `质量评分表`（人工/AI 协助制作） | 只对 included 清单的 `record_id` 提取 | `human_final_decision` 无空值/uncertain；排除编码在闭集内；PRISMA 恒等式平衡 |
 | A3 → A4 | 主表草案（`verified` 标记齐全） | 校验后换算 | `validate_table.py` 无 ERROR |
 | A4 → A5 | 冻结主表 + 快照指纹 + 分层结果 | 审计与敏感性基于同一快照 | 快照哈希一致 |
 | A5 → A6 | 数值审计对照表 + 差异清单 | 稿件数值同步与回复撰写 | 无 `MISMATCH` / `NO_SOURCE` |

@@ -92,14 +92,15 @@ TA_FIELDS = ["record_id", "ai_article_type", "ai_confidence",
 FT_FIELDS = ["record_id", "fulltext_available", "confirmed_article_type",
              "has_human_samples", "analytes_reported", "has_usable_concentration",
              "ai_screening_decision", "ai_reason_code",
-             "human_final_decision", "human_final_reason_code"]
+             "human_final_decision", "human_final_reason_code",
+             "meta_disposition"]
 DEDUP_DECISION_FIELDS = ["record_id", "duplicate_group_id", "duplicate_match_type",
                          "kept_record_id", "ai_decision", "human_decision"]
 SUMMARY_FIELDS = ["scope", "category", "count"]
 LOG_FIELDS = ["metric", "value"]
 INCLUDED_FIELDS = ["study_id", "record_id", "title", "first_author", "year", "doi",
                    "country", "population", "matrix", "analyte",
-                   "screening_status", "human_gate_status"]
+                   "screening_status", "human_gate_status", "meta_disposition"]
 EXCLUDED_FIELDS = INCLUDED_FIELDS + ["exclusion_reason"]
 
 
@@ -109,7 +110,35 @@ EXCLUDED_FIELDS = INCLUDED_FIELDS + ["exclusion_reason"]
 
 REQUIRED_SCREENING_KEYS = ["dedup", "min_text_chars", "analyte_terms",
                            "article_types", "type_decision_map",
-                           "classification_rules", "exclusion_reasons"]
+                           "classification_rules"]
+
+# exclusion_reasons（旧名）/ exclusion_reason_codes（v2 模板名）二选一；
+# 两者同时出现 → 硬错误（防止两份清单漂移）
+EXCLUSION_CODE_KEYS = ["exclusion_reasons", "exclusion_reason_codes"]
+
+# 去重级别的方法闭集（声明式配置；引擎实现的就是这三种，未知方法 → 硬错误）
+DEDUP_METHODS = ["doi_exact", "pmid_exact", "title_author_year_fuzzy"]
+
+# 保留排除编码：任何配置都必须包含（全文不可得 / 信息不足是脚本退路）
+RESERVED_EXCLUSION_CODES = ["insufficient_info", "fulltext_unavailable"]
+
+# meta_analysis_disposition（可选区块）的最小必需取值
+# "分类 ≠ 定量处理意见"：综述可 background_only、动物实验可机制引用
+# —— 两字段分离见 data-contract.md §10 与 screening-workflow.md §1
+REQUIRED_META_DISPOSITIONS = ["include", "exclude"]
+
+# classification_rules 的"关键词组"格式（mapping）→ 类型映射与编译顺序
+# （有序规则 list 格式仍同时支持；两种格式二选一，同时出现 → 硬错误）
+GROUP_TYPE_MAP: dict[str, str] = {
+    "review_keywords": "review",
+    "animal_keywords": "animal_study",
+    "in_vitro_keywords": "in_vitro_study",
+    "methodology_keywords": "methodology",
+    "policy_keywords": "policy_or_comment",
+    "hbm_keywords": "human_hbm_original",
+}
+GROUP_ORDER = ["review_keywords", "animal_keywords", "in_vitro_keywords",
+               "methodology_keywords", "policy_keywords", "hbm_keywords"]
 
 
 def _str_list(value, where: str) -> list[str]:
@@ -134,23 +163,55 @@ def validate_screening(scr: dict) -> dict:
             f"project.yaml 缺少 screening 区块的必需键：{', '.join(missing)}。"
             "模板见 templates/project.yaml 的 screening 区块。")
 
-    # dedup
+    # dedup（title_similarity_threshold / similarity_threshold 二选一，别名兼容）
     dedup = scr.get("dedup") or {}
     if not isinstance(dedup, dict):
         raise ConfigError("screening.dedup 必须是映射。")
-    for k in ("title_similarity_threshold", "author_match_required", "year_tolerance"):
-        if k not in dedup:
-            raise ConfigError(f"screening.dedup 缺少 `{k}`（必填，不做默认值兜底）。")
-    thr = dedup["title_similarity_threshold"]
+    thr_keys = [k for k in ("title_similarity_threshold", "similarity_threshold")
+                if k in dedup]
+    if len(thr_keys) > 1:
+        raise ConfigError(
+            "screening.dedup 的 title_similarity_threshold 与 similarity_threshold "
+            "只能二选一（防止两处阈值漂移）。")
+    if not thr_keys:
+        raise ConfigError(
+            "screening.dedup 缺少 title_similarity_threshold（或别名 "
+            "similarity_threshold）（必填，不做默认值兜底）。")
+    thr = dedup[thr_keys[0]]
     if not isinstance(thr, (int, float)) or not (0 < thr <= 1):
         raise ConfigError(
-            f"screening.dedup.title_similarity_threshold = {thr!r} 非法；"
+            f"screening.dedup.{thr_keys[0]} = {thr!r} 非法；"
             "必须是 (0, 1] 的数值（Jaccard 相似度阈值）。")
+    for k in ("author_match_required", "year_tolerance"):
+        if k not in dedup:
+            raise ConfigError(f"screening.dedup 缺少 `{k}`（必填，不做默认值兜底）。")
     if not isinstance(dedup["author_match_required"], bool):
         raise ConfigError("screening.dedup.author_match_required 必须是布尔值。")
     yt = dedup["year_tolerance"]
     if not isinstance(yt, int) or yt < 0:
         raise ConfigError("screening.dedup.year_tolerance 必须是非负整数。")
+    # match_levels（可选，声明式）：校验方法在已实现闭集内
+    if "match_levels" in dedup:
+        ml = dedup["match_levels"]
+        if not isinstance(ml, list) or not ml:
+            raise ConfigError("screening.dedup.match_levels 必须是非空列表。")
+        seen_methods: list[str] = []
+        for i, lv in enumerate(ml):
+            if not isinstance(lv, dict) or "method" not in lv:
+                raise ConfigError(
+                    f"screening.dedup.match_levels[{i}] 必须是含 method 的映射。")
+            method = str(lv["method"]).strip()
+            if method not in DEDUP_METHODS:
+                raise ConfigError(
+                    f"screening.dedup.match_levels[{i}].method = `{method}` "
+                    f"未实现或非法；已实现：{', '.join(DEDUP_METHODS)}。")
+            if method in seen_methods:
+                raise ConfigError(
+                    f"screening.dedup.match_levels 方法重复：`{method}`。")
+            seen_methods.append(method)
+            if "level" in lv and not isinstance(lv["level"], int):
+                raise ConfigError(
+                    f"screening.dedup.match_levels[{i}].level 必须是整数。")
 
     min_chars = scr["min_text_chars"]
     if not isinstance(min_chars, int) or min_chars < 0:
@@ -187,43 +248,96 @@ def validate_screening(scr: dict) -> dict:
         raise ConfigError(
             f"screening.type_decision_map 含未在 article_types 中声明的键：{extra_types}。")
 
-    # classification_rules（有序规则引擎）
+    # classification_rules：两种格式二选一
+    #   (a) 有序规则 list（每条 {id, type, title_any, abstract_any, require_analyte}）
+    #   (b) 关键词组 mapping（review_keywords / animal_keywords / ... → 按固定
+    #       顺序编译为 title_any 规则；适合快速上手，表达力低于格式 a）
     rules_raw = scr["classification_rules"]
-    if not isinstance(rules_raw, list) or not rules_raw:
-        raise ConfigError("screening.classification_rules 必须是非空列表。")
-    rules = []
-    for i, r in enumerate(rules_raw):
-        where = f"classification_rules[{i}]"
-        if not isinstance(r, dict):
-            raise ConfigError(f"screening.{where} 必须是映射。")
-        rid = str(r.get("id") or f"rule_{i + 1:02d}").strip()
-        rtype = str(r.get("type") or "").strip()
-        if rtype not in article_types:
+    rules: list[dict] = []
+    if isinstance(rules_raw, list):
+        if not rules_raw:
+            raise ConfigError("screening.classification_rules 必须是非空列表。")
+        for i, r in enumerate(rules_raw):
+            where = f"classification_rules[{i}]"
+            if not isinstance(r, dict):
+                raise ConfigError(f"screening.{where} 必须是映射。")
+            rid = str(r.get("id") or f"rule_{i + 1:02d}").strip()
+            rtype = str(r.get("type") or "").strip()
+            if rtype not in article_types:
+                raise ConfigError(
+                    f"screening.{where}.type = `{rtype}` 不在 article_types 闭集内。")
+            title_any = [str(x).strip() for x in (r.get("title_any") or [])
+                         if str(x).strip()]
+            abstract_any = [str(x).strip() for x in (r.get("abstract_any") or [])
+                            if str(x).strip()]
+            if not title_any and not abstract_any:
+                raise ConfigError(
+                    f"screening.{where}（{rid}）的 title_any 与 abstract_any "
+                    "不能同时为空。")
+            rules.append({
+                "id": rid, "type": rtype,
+                "title_any": title_any, "abstract_any": abstract_any,
+                "require_analyte": bool(r.get("require_analyte", False)),
+            })
+    elif isinstance(rules_raw, dict):
+        unknown_groups = [g for g in rules_raw if g not in GROUP_TYPE_MAP]
+        if unknown_groups:
             raise ConfigError(
-                f"screening.{where}.type = `{rtype}` 不在 article_types 闭集内。")
-        title_any = [str(x).strip() for x in (r.get("title_any") or []) if str(x).strip()]
-        abstract_any = [str(x).strip() for x in (r.get("abstract_any") or [])
-                        if str(x).strip()]
-        if not title_any and not abstract_any:
+                f"screening.classification_rules 含未知关键词组 {unknown_groups}；"
+                f"允许的组：{', '.join(GROUP_ORDER)}（按此顺序编译，先命中先判）。")
+        for group in GROUP_ORDER:
+            if group not in rules_raw:
+                continue
+            kws = _str_list(rules_raw[group], f"classification_rules.{group}")
+            rules.append({
+                "id": f"auto_{group}", "type": GROUP_TYPE_MAP[group],
+                "title_any": kws, "abstract_any": [],
+                # 关键词组格式没有分析物门控概念 → 不启用 require_analyte；
+                # 若需抑制泛词误判（如 blood），请改用格式 a 并设 require_analyte
+                "require_analyte": False,
+            })
+        if not rules:
             raise ConfigError(
-                f"screening.{where}（{rid}）的 title_any 与 abstract_any 不能同时为空。")
-        rules.append({
-            "id": rid, "type": rtype,
-            "title_any": title_any, "abstract_any": abstract_any,
-            "require_analyte": bool(r.get("require_analyte", False)),
-        })
+                "screening.classification_rules（关键词组格式）没有任何可识别的组。")
+    else:
+        raise ConfigError(
+            "screening.classification_rules 必须是有序规则列表（格式 a）或"
+            "关键词组映射（格式 b），二者不可同时使用。")
     seen_ids = [r["id"] for r in rules]
     if len(seen_ids) != len(set(seen_ids)):
         raise ConfigError("screening.classification_rules 的 id 重复。")
 
-    # exclusion_reasons（闭集）
-    reasons = _str_list(scr["exclusion_reasons"], "exclusion_reasons")
-    if len(reasons) != len(set(reasons)):
-        raise ConfigError("screening.exclusion_reasons 含重复项。")
-    if "insufficient_info" not in reasons:
+    # exclusion_reasons（旧名）/ exclusion_reason_codes（v2 模板名）二选一
+    code_keys = [k for k in EXCLUSION_CODE_KEYS if k in scr]
+    if len(code_keys) > 1:
         raise ConfigError(
-            "screening.exclusion_reasons 缺少保留编码 `insufficient_info`"
-            "（全文不可得时的退路）。")
+            "screening 的 exclusion_reasons 与 exclusion_reason_codes 只能二选一"
+            "（防止两份清单漂移）。")
+    if not code_keys:
+        raise ConfigError(
+            "screening 缺少 exclusion_reason_codes（或旧名 exclusion_reasons）——"
+            "排除原因闭集必须显式配置，不做默认值兜底。")
+    reasons = _str_list(scr[code_keys[0]], f"screening.{code_keys[0]}")
+    if len(reasons) != len(set(reasons)):
+        raise ConfigError(f"screening.{code_keys[0]} 含重复项。")
+    for rc in RESERVED_EXCLUSION_CODES:
+        if rc not in reasons:
+            raise ConfigError(
+                f"screening.{code_keys[0]} 缺少保留编码 `{rc}`"
+                "（脚本退路依赖它，任何配置都必须包含）。")
+
+    # meta_analysis_disposition（可选区块）：分类（是什么）与定量处理意见（怎么用）
+    # 是两个字段；本闭集供 included/excluded 清单的 meta_disposition 列校验
+    meta_disp: list[str] = []
+    if "meta_analysis_disposition" in scr:
+        meta_disp = _str_list(scr["meta_analysis_disposition"],
+                              "meta_analysis_disposition")
+        if len(meta_disp) != len(set(meta_disp)):
+            raise ConfigError("screening.meta_analysis_disposition 含重复项。")
+        missing_disp = [d for d in REQUIRED_META_DISPOSITIONS if d not in meta_disp]
+        if missing_disp:
+            raise ConfigError(
+                f"screening.meta_analysis_disposition 缺少必需取值 {missing_disp}。")
 
     ftr = scr.get("fulltext_rules") or {}
     if not isinstance(ftr, dict):
@@ -235,13 +349,15 @@ def validate_screening(scr: dict) -> dict:
     return {
         "dedup": {"title_similarity_threshold": float(thr),
                   "author_match_required": dedup["author_match_required"],
-                  "year_tolerance": yt},
+                  "year_tolerance": yt,
+                  "match_levels": dedup.get("match_levels", [])},
         "min_text_chars": min_chars,
         "analyte_terms": analyte_terms,
         "article_types": article_types,
         "type_decision_map": dict(tdm),
         "classification_rules": rules,
         "exclusion_reasons": reasons,
+        "meta_analysis_dispositions": meta_disp,
         "fulltext_rules": {
             "human_sample_terms": _str_list(ftr["human_sample_terms"],
                                             "fulltext_rules.human_sample_terms"),
@@ -434,7 +550,9 @@ screening:
   exclusion_reasons: [not_human_study, wrong_analyte, no_hbm_data,
                       no_usable_values, wrong_population, wrong_year,
                       duplicate_cohort, review_or_comment, conference_abstract,
-                      insufficient_info]
+                      insufficient_info, fulltext_unavailable]
+  meta_analysis_disposition: [include, exclude, background_only,
+                              citation_tracking_only, uncertain]
   fulltext_rules:
     human_sample_terms: ["participants", "subjects", "residents", "pregnant",
                          "children", "adults", "newborns", "volunteers",
@@ -452,6 +570,62 @@ def load_fixture_spec() -> dict:
     p.write_text(FIXTURE_SCREENING_YAML.lstrip(), encoding="utf-8")
     _, spec = load_screening_config(p)
     return spec
+
+
+# 关键词组格式（v2 模板采用的 classification_rules 形态）的最小自检夹具
+_GROUP_FORMAT_YAML = """
+screening:
+  dedup:
+    similarity_threshold: 0.85
+    author_match_required: true
+    year_tolerance: 0
+    match_levels:
+      - {level: 1, method: doi_exact}
+      - {level: 2, method: pmid_exact}
+      - {level: 3, method: title_author_year_fuzzy}
+  min_text_chars: 40
+  analyte_terms: ["arsenic", "砷"]
+  article_types: [human_hbm_original, human_non_hbm, review, animal_study,
+                  in_vitro_study, methodology, policy_or_comment, other,
+                  insufficient_info]
+  type_decision_map:
+    human_hbm_original: "proceed_to_fulltext"
+    human_non_hbm: "uncertain"
+    review: "suggest_exclude"
+    animal_study: "suggest_exclude"
+    in_vitro_study: "suggest_exclude"
+    methodology: "uncertain"
+    policy_or_comment: "suggest_exclude"
+    other: "uncertain"
+    insufficient_info: "uncertain"
+  classification_rules:
+    review_keywords: [review, meta-analysis, systematic review, overview]
+    animal_keywords: [rats, mouse, mice, animal, in vivo, rodent]
+    in_vitro_keywords: [cell line, in vitro, cell culture]
+    hbm_keywords: [biomonitoring, urinary, urine, blood, serum, plasma,
+                   breast milk, cord blood, hair]
+  exclusion_reason_codes: [not_human_study, wrong_analyte, no_hbm_data,
+                           no_usable_values, wrong_population, wrong_year,
+                           duplicate_cohort, review_or_comment,
+                           conference_abstract, fulltext_unavailable,
+                           insufficient_info]
+  fulltext_rules:
+    human_sample_terms: ["participants", "adults"]
+    concentration_stat_terms: ["geometric mean", "median"]
+"""
+
+
+def _scr_from_yaml(text: str) -> dict:
+    """夹具 YAML → screening 原始 dict（写临时文件走正式 load_config 路径）。"""
+    tmp = Path(tempfile.mkdtemp(prefix="hbm_s2_grp_"))
+    p = tmp / "g.yaml"
+    # 允许只含 screening 区块的片段：包一层最小 project.yaml 无法省略其他必需
+    # 区块，故这里直接把片段并入完整夹具（替换其 screening 区块）
+    base = FIXTURE_SCREENING_YAML
+    merged = base[:base.index("screening:")] + text.lstrip() + "\n"
+    p.write_text(merged.lstrip(), encoding="utf-8")
+    _, spec_raw = load_screening_config(p)
+    return spec_raw
 
 
 # ===========================================================================
@@ -498,7 +672,10 @@ def run_self_test() -> int:
     check("规则引擎 8 条且 id 唯一",
           len(spec["classification_rules"]) == 8
           and len({r["id"] for r in spec["classification_rules"]}) == 8)
-    check("排除原因 10 项闭集", len(spec["exclusion_reasons"]) == 10)
+    check("排除原因 11 项闭集（含 fulltext_unavailable）",
+          len(spec["exclusion_reasons"]) == 11
+          and {"insufficient_info", "fulltext_unavailable"}
+          <= set(spec["exclusion_reasons"]))
     check("dedup 阈值 = 0.85", spec["dedup"]["title_similarity_threshold"] == 0.85)
 
     print("\n[3] 配置校验的显式拒绝")
@@ -534,6 +711,51 @@ def run_self_test() -> int:
                  lambda: mutate(lambda t: t.replace(
                      "conference_abstract,\n                      insufficient_info",
                      "conference_abstract")))
+
+    print("\n[3b] v2 新增：别名 / 关键词组格式 / meta_analysis_disposition")
+    spec_g = validate_screening(_scr_from_yaml(_GROUP_FORMAT_YAML))
+    check("关键词组格式可编译（4 组 → 4 条规则）",
+          len(spec_g["classification_rules"]) == 4
+          and spec_g["classification_rules"][0]["id"] == "auto_review_keywords")
+    check("编译顺序 review → animal → in_vitro → hbm",
+          [r["type"] for r in spec_g["classification_rules"]]
+          == ["review", "animal_study", "in_vitro_study", "human_hbm_original"])
+    check("组格式规则落在 article_types 闭集内",
+          {r["type"] for r in spec_g["classification_rules"]}
+          <= set(spec_g["article_types"]))
+    expect_error("未知关键词组 → ConfigError",
+                 lambda: validate_screening(_scr_from_yaml(
+                     _GROUP_FORMAT_YAML.replace("review_keywords:",
+                                                "politics_keywords:"))),
+                 "未知关键词组")
+    expect_error("两种 exclusion 键并存 → ConfigError",
+                 lambda: validate_screening(_scr_from_yaml(
+                     _GROUP_FORMAT_YAML
+                     + "\n  exclusion_reasons: [not_human_study]\n")),
+                 "只能二选一")
+    expect_error("两个阈值键并存 → ConfigError",
+                 lambda: validate_screening(_scr_from_yaml(
+                     _GROUP_FORMAT_YAML.replace(
+                         "    similarity_threshold: 0.85",
+                         "    similarity_threshold: 0.85\n"
+                         "    title_similarity_threshold: 0.9"))),
+                 "只能二选一")
+    expect_error("match_levels 未知方法 → ConfigError",
+                 lambda: validate_screening(_scr_from_yaml(
+                     _GROUP_FORMAT_YAML.replace(
+                         "{level: 1, method: doi_exact}",
+                         "{level: 1, method: doi_fuzzy}"))),
+                 "未实现或非法")
+    spec_disp = _scr_from_yaml(
+        _GROUP_FORMAT_YAML + "\n  meta_analysis_disposition: "
+        "[include, exclude, background_only, citation_tracking_only, uncertain]\n")
+    check("meta_analysis_disposition 通过校验并进入 spec",
+          spec_disp["meta_analysis_dispositions"][2] == "background_only")
+    expect_error("meta_analysis_disposition 缺 include/exclude → ConfigError",
+                 lambda: validate_screening(_scr_from_yaml(
+                     _GROUP_FORMAT_YAML + "\n  meta_analysis_disposition: "
+                     "[background_only, uncertain]\n")),
+                 "缺少必需取值")
 
     print("\n[4] DOI / PMID / 作者规范化")
     check("URL 形态 DOI 归一", normalize_doi("https://doi.org/10.1234/ABC.def") ==

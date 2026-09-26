@@ -21,3 +21,4 @@ excluded_fulltext_reason_duplicate_cohort,0
 excluded_fulltext_reason_review_or_comment,0
 excluded_fulltext_reason_conference_abstract,0
 excluded_fulltext_reason_insufficient_info,0
+excluded_fulltext_reason_fulltext_unavailable,0

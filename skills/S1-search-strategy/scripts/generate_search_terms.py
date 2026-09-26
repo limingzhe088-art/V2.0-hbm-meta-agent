@@ -10,9 +10,12 @@ generate_search_terms.py — 从 project.yaml 生成各数据库检索式草稿�
 
 输入（project.yaml → search 区块 —— **条件必需**，使用本脚本时缺失即硬错误）
   search:
-    databases: [...]            # 允许：PubMed / WebOfScience / Scopus / Embase / CNKI / Wanfang
-    year_from: 1980             # 发表年窗口（注意：与 period_scheme 的采样年分期是两回事）
-    year_to: 2024
+    databases:                  # 字符串（纯库名）或映射（name + 检索执行元数据）均可
+      - {name: PubMed, search_string: "", records_exported: 0,
+         export_format: ris, export_file: ""}   # 元数据为 GATE-1 人工登记位；
+                                                # 权威执行记录仍是检索记录/source_summary.csv
+    date_range: {start_year: 1980, end_year: 2024}  # 或旧形态 year_from/year_to（二选一）
+    language_filter: [en, zh]   # 可选；PubMed/WoS 草稿自动接入语言过滤
     analytes:                   # 每项：{name, synonyms, [mesh], [synonyms_zh]}
       - {name: "arsenic", mesh: ["Arsenic"], synonyms: [...], synonyms_zh: [...]}
     matrices:                   # 每项：{name, synonyms, [mesh], [synonyms_zh]}
@@ -65,11 +68,37 @@ except ImportError as _exc:  # pragma: no cover
 # ===========================================================================
 
 REQUIRED_SEARCH_KEYS = ["databases", "analytes", "matrices", "population_keywords",
-                        "exposure_terms", "year_from", "year_to"]
+                        "exposure_terms"]
 
 KNOWN_DATABASES = ["PubMed", "WebOfScience", "Scopus", "Embase", "CNKI", "Wanfang"]
 
-CHINESE_DATABASES = {"CNKI", "Wanfang"}
+# 数据库显示名/别名 → 规范名（search.databases 的 name 字段大小写不敏感）
+DB_NAME_ALIASES: dict[str, str] = {
+    "pubmed": "PubMed",
+    "web of science": "WebOfScience", "webofscience": "WebOfScience", "wos": "WebOfScience",
+    "scopus": "Scopus",
+    "embase": "Embase",
+    "cnki": "CNKI",
+    "wanfang": "Wanfang",
+}
+
+# search.databases 条目（字典型）允许的键；未知键 → 硬错误（防拼写漂移）
+DB_ENTRY_KEYS = ["name", "search_string", "records_exported", "export_format",
+                 "export_file"]
+
+# 导出格式闭集（声明式元数据；解析器对应关系见 references/database_syntax.md）
+EXPORT_FORMATS = ["ris", "enl", "xml", "bib", "txt"]
+
+# 年份窗口：date_range（v2 模板形态）或 year_from/year_to（旧形态）二选一
+DATE_KEYS = ["date_range", "year_from"]
+
+# 语言过滤闭集 → 各库语法映射
+LANGUAGE_CODES: dict[str, dict[str, str]] = {
+    "en": {"label": "English", "pubmed": '"english"[Language]',
+           "wos": "English"},
+    "zh": {"label": "Chinese", "pubmed": '"chinese"[Language]',
+           "wos": "Chinese"},
+}
 
 EXCLUSION_GROUPS = ["animal", "cell", "occupational", "clinical"]
 
@@ -119,6 +148,61 @@ def _validate_term_bank(bank, where: str) -> list[dict]:
     return out
 
 
+def _normalize_db_name(value: str, where: str) -> str:
+    """数据库显示名/别名 → 规范名；未知名 → 硬错误。"""
+    key = str(value).strip().lower()
+    if key in DB_NAME_ALIASES:
+        return DB_NAME_ALIASES[key]
+    raise ConfigError(
+        f"search.{where} 含未知数据库 `{value}`。"
+        f"当前支持（可用显示名或别名）：PubMed / Web of Science / Scopus / "
+        f"Embase / CNKI / Wanfang。")
+
+
+def _validate_databases(value) -> tuple[list[str], list[dict]]:
+    """
+    search.databases 两种形态：
+      (a) 字符串列表（旧形态，纯名称）→ 规范名列表
+      (b) 映射列表（v2 模板形态：name + 检索执行元数据）
+    返回 (规范名列表, 原始条目列表)。
+    """
+    if not isinstance(value, list) or not value:
+        raise ConfigError("search.databases 必须是非空列表。")
+    names: list[str] = []
+    entries: list[dict] = []
+    for i, item in enumerate(value):
+        where = f"databases[{i}]"
+        if isinstance(item, str):
+            names.append(_normalize_db_name(item, where))
+            entries.append({"name": names[-1]})
+            continue
+        if not isinstance(item, dict):
+            raise ConfigError(
+                f"search.{where} 必须是字符串（库名）或映射（name + 执行元数据）。")
+        unknown = [k for k in item if k not in DB_ENTRY_KEYS]
+        if unknown:
+            raise ConfigError(
+                f"search.{where} 含未知键 {unknown}；允许的键："
+                f"{', '.join(DB_ENTRY_KEYS)}。")
+        name_raw = str(item.get("name", "")).strip()
+        if not name_raw:
+            raise ConfigError(f"search.{where}.name 未填写（必填）。")
+        name = _normalize_db_name(name_raw, where)
+        fmt = item.get("export_format")
+        if fmt is not None and str(fmt).strip() not in EXPORT_FORMATS:
+            raise ConfigError(
+                f"search.{where}.export_format = `{fmt}` 非法；"
+                f"允许取值：{', '.join(EXPORT_FORMATS)}。")
+        exported = item.get("records_exported")
+        if exported is not None and (not isinstance(exported, int)
+                                     or isinstance(exported, bool) or exported < 0):
+            raise ConfigError(
+                f"search.{where}.records_exported = {exported!r} 必须是非负整数。")
+        names.append(name)
+        entries.append(dict(item, name=name))
+    return names, entries
+
+
 def validate_search(search: dict) -> dict:
     """校验 search 区块。任一问题 → ConfigError（硬错误，不做兜底）。"""
     if not isinstance(search, dict):
@@ -129,18 +213,46 @@ def validate_search(search: dict) -> dict:
             f"project.yaml 缺少 search 区块的必需键：{', '.join(missing)}。"
             "模板见 templates/project.yaml 的 search 区块。")
 
-    databases = _as_str_list(search["databases"], "databases")
-    unknown = [d for d in databases if d not in KNOWN_DATABASES]
-    if unknown:
-        raise ConfigError(
-            f"search.databases 含未知数据库 {unknown}。"
-            f"当前支持：{', '.join(KNOWN_DATABASES)}。")
+    databases, db_entries = _validate_databases(search["databases"])
 
-    year_from, year_to = search["year_from"], search["year_to"]
+    # 年份窗口：date_range（v2 形态）或 year_from/year_to（旧形态）二选一
+    has_dr, has_old = "date_range" in search, "year_from" in search
+    if has_dr and has_old:
+        raise ConfigError(
+            "search 的 date_range 与 year_from/year_to 只能二选一"
+            "（防止两处年份窗口漂移）。")
+    if has_dr:
+        dr = search["date_range"]
+        if not isinstance(dr, dict) or "start_year" not in dr or "end_year" not in dr:
+            raise ConfigError(
+                "search.date_range 必须是含 start_year / end_year 的映射。")
+        year_from, year_to = dr["start_year"], dr["end_year"]
+    elif has_old:
+        if "year_to" not in search:
+            raise ConfigError("search.year_from 与 year_to 必须成对出现。")
+        year_from, year_to = search["year_from"], search["year_to"]
+    else:
+        raise ConfigError(
+            "search 缺少年份窗口：请配置 date_range: {start_year, end_year}"
+            "（或旧形态 year_from / year_to）。")
     if not isinstance(year_from, int) or not isinstance(year_to, int):
-        raise ConfigError("search.year_from / year_to 必须是整数年份。")
+        raise ConfigError("search 年份窗口必须是整数年份。")
     if year_from > year_to:
-        raise ConfigError(f"search.year_from ({year_from}) > year_to ({year_to})。")
+        raise ConfigError(f"search 年份窗口非法：{year_from} > {year_to}。")
+
+    # language_filter（可选）：语言代码闭集
+    lang_filter: list[str] = []
+    if "language_filter" in search:
+        raw_langs = search["language_filter"]
+        if not isinstance(raw_langs, list) or not raw_langs:
+            raise ConfigError("search.language_filter 必须是非空列表。")
+        for code in raw_langs:
+            c = str(code).strip().lower()
+            if c not in LANGUAGE_CODES:
+                raise ConfigError(
+                    f"search.language_filter 含未知语言代码 `{code}`；"
+                    f"当前支持：{', '.join(sorted(LANGUAGE_CODES))}。")
+            lang_filter.append(c)
 
     excl = search.get("exclusion_terms") or {}
     if not isinstance(excl, dict):
@@ -153,6 +265,8 @@ def validate_search(search: dict) -> dict:
 
     return {
         "databases": databases,
+        "database_entries": db_entries,
+        "language_filter": lang_filter,
         "year_from": year_from,
         "year_to": year_to,
         "analytes": _validate_term_bank(search["analytes"], "analytes"),
@@ -215,6 +329,11 @@ def build_pubmed(spec: dict) -> tuple[str, list[str]]:
             notes.append(OVERKILL_WARNINGS["occupational"])
     yf, yt = spec["year_from"], spec["year_to"]
     parts.append(f'("{yf}/01/01"[PDAT] : "{yt}/12/31"[PDAT])')
+    if spec.get("language_filter"):
+        lang = " OR ".join(LANGUAGE_CODES[c]["pubmed"] for c in spec["language_filter"])
+        parts.append(f"({lang})")
+        notes.append("语言过滤会排除其他语言文献；中文库（CNKI/万方）不受此影响，"
+                     "但可能漏掉其他语种的相关研究 —— 是否放宽由人工在 GATE-1 决定。")
     return " AND ".join(parts), notes
 
 
@@ -236,6 +355,9 @@ def build_wos(spec: dict) -> tuple[str, list[str]]:
         if "occupational" in excl:
             notes.append(OVERKILL_WARNINGS["occupational"])
     core += f' AND PY=({spec["year_from"]}-{spec["year_to"]})'
+    if spec.get("language_filter"):
+        lang = " OR ".join(LANGUAGE_CODES[c]["wos"] for c in spec["language_filter"])
+        core += f" AND LA=({lang})"
     notes.append("WoS 无 MeSH；如需主题扩展，请在 TS= 中人工补充拼写变体与词根截断（如 arsenic*）。")
     return core, notes
 
@@ -515,6 +637,28 @@ FIXTURE_YAML_NO_ZH = FIXTURE_YAML.replace(
     '      synonyms_zh: ["砷", "总砷"]\n', "").replace(
     '      synonyms_zh: ["尿", "尿液"]\n', "")
 
+# v2 模板形态：字典型 databases + date_range + language_filter
+FIXTURE_YAML_V2 = FIXTURE_YAML.replace(
+    '  databases: ["PubMed", "WebOfScience", "Scopus", "Embase", "CNKI"]',
+    """  databases:
+    - name: PubMed
+      search_string: ""
+      records_exported: 0
+      export_format: ris
+      export_file: ""
+    - name: "Web of Science"
+      search_string: ""
+      records_exported: 0
+      export_format: xml
+      export_file: ""
+    - name: CNKI
+      export_format: enl
+  date_range:
+    start_year: 1980
+    end_year: 2024
+  language_filter: [en, zh]""").replace(
+    "  year_from: 1980\n  year_to: 2024\n", "")
+
 
 def _write_fixture(tmp, name: str, text: str) -> Path:
     p = tmp / name
@@ -534,6 +678,13 @@ def run_self_test() -> int:
         checks.append((name, ok, detail))
         print(f"      {'✅' if ok else '❌'} {name}" + (f"  [{detail}]" if detail else ""))
 
+    def expect_error(name, fn, needle=""):
+        try:
+            fn()
+            check(name, False, "未抛出！")
+        except ConfigError as e:
+            check(name, True, (str(e)[:44] + "…") if needle in str(e) else str(e)[:44])
+
     cfg = load_config(_write_fixture(tmp, "ok.yaml", FIXTURE_YAML),
                       require=["search"])
     spec = validate_search(cfg.raw["search"])
@@ -546,6 +697,45 @@ def run_self_test() -> int:
           and spec["analytes"][0]["synonyms_zh"] == ["砷", "总砷"])
     check("exclusion_terms 分组合法",
           set(spec["exclusion_terms"]) == {"animal", "occupational"})
+
+    print("\n[1b] v2 模板形态：字典型 databases / date_range / language_filter")
+    spec_v2 = validate_search(load_config(
+        _write_fixture(tmp, "v2.yaml", FIXTURE_YAML_V2),
+        require=["search"]).raw["search"])
+    check("显示名 'Web of Science' 归一为 WebOfScience",
+          spec_v2["databases"][1] == "WebOfScience", str(spec_v2["databases"]))
+    check("date_range 别名解析出年份窗口",
+          spec_v2["year_from"] == 1980 and spec_v2["year_to"] == 2024)
+    check("database_entries 保留执行元数据",
+          spec_v2["database_entries"][0]["export_format"] == "ris"
+          and spec_v2["database_entries"][1]["name"] == "WebOfScience")
+    check("language_filter 解析", spec_v2["language_filter"] == ["en", "zh"])
+    q_pm2, _ = build_pubmed(spec_v2)
+    check("PubMed 草稿含语言过滤", '"english"[Language]' in q_pm2
+          and '"chinese"[Language]' in q_pm2)
+    q_wos2, _ = build_wos(spec_v2)
+    check("WoS 草稿含 LA= 语言过滤", "LA=(English OR Chinese)" in q_wos2)
+    expect_error("未知语言代码 → ConfigError",
+                 lambda: validate_search(load_config(_write_fixture(
+                     tmp, "badlang.yaml", FIXTURE_YAML_V2.replace(
+                         "language_filter: [en, zh]", "language_filter: [fr]")),
+                     require=["search"]).raw["search"]), "未知语言代码")
+    expect_error("date_range 与 year_from 并存 → ConfigError",
+                 lambda: validate_search(load_config(_write_fixture(
+                     tmp, "bothdate.yaml", FIXTURE_YAML_V2.replace(
+                         "  date_range:", "  year_from: 1980\n  year_to: 2024\n  date_range:")),
+                     require=["search"]).raw["search"]), "只能二选一")
+    expect_error("database 条目未知键 → ConfigError",
+                 lambda: validate_search(load_config(_write_fixture(
+                     tmp, "baddbkey.yaml", FIXTURE_YAML_V2.replace(
+                         "      export_format: ris\n",
+                         "      export_format: ris\n      filetype: ris\n")),
+                     require=["search"]).raw["search"]), "未知键")
+    expect_error("export_format 越界 → ConfigError",
+                 lambda: validate_search(load_config(_write_fixture(
+                     tmp, "badfmt.yaml", FIXTURE_YAML_V2.replace(
+                         "export_format: xml", "export_format: pdf")),
+                     require=["search"]).raw["search"]), "允许取值")
 
     print("\n[2] PubMed 构造")
     q_pm, n_pm = build_pubmed(spec)

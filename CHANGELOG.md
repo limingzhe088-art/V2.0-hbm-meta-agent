@@ -7,6 +7,52 @@
 
 ## [Unreleased]
 
+### Changed · 项目配置与共享资产扩展（支持 S1/S2）
+
+- `templates/project.yaml`（示例配置同步）：
+  - `search` 区块升级为 v2 结构——`databases` 支持映射形态（name + 人工登记的
+    检索执行元数据 search_string/records_exported/export_format/export_file；
+    权威执行记录仍是检索记录 CSV）、`date_range`（start_year/end_year，
+    旧形态 year_from/year_to 仍兼容）、`language_filter`（en/zh，PubMed/WoS
+    草稿自动接入）、检索词表保留
+  - `screening` 区块升级——`dedup.similarity_threshold`（别名
+    title_similarity_threshold，二选一）与声明式 `match_levels`（method 闭集
+    校验，未实现方法显式拒绝）、`meta_analysis_disposition`（定量处理意见
+    5 值闭集，与文章类型分字段——"分类 ≠ 处理意见"）、
+    `exclusion_reason_codes`（旧名 exclusion_reasons 兼容；新增保留编码
+    `fulltext_unavailable`，11 项）、`classification_rules` 支持
+    **关键词组格式**（review/animal/in_vitro/hbm_keywords，按固定顺序编译）
+    与有序规则列表格式（二选一，后者支持 require_analyte 门控）
+- `shared/data-contract.md` 新增 **§10 S1/S2 阶段数据表**（raw_records /
+  dedup_decisions / title_abstract_screening / fulltext_screening /
+  included_studies / excluded_studies / screening_log：粒度、字段、AI/人工
+  写入边界、PRISMA 恒等式）；§5 补 search/screening 区块规范指引；
+  §9 依赖关系表补 S1/S2。纯增量内容，主表 72 字段契约与契约版本号不变
+- `shared/quality-gates.md` GATE-S2a/S2b/S2c 增补：脚本验证命令、人工确认
+  清单（checkbox）、`_state/gates.json` 状态标记示例；状态机示例 JSON 补
+  三个 S2 闸门
+- `shared/project_config.py`：`CONDITIONAL_SECTIONS` 登记 search/screening
+  （错误信息指明归属子技能）；区块**存在时**做轻量结构防御校验
+  （深层语义校验单一来源仍在 S1/S2 脚本，避免两套校验器漂移）；52 项自检
+- `agent/routing.md`：A1/A2 输出契约对齐 v2 产物（all_raw_records /
+  dedup/included/excluded/screening_log 等）；交接契约表 A1→A2、A2→A3 更新；
+  登记实现状态与 AHRQ 评分自动化缺口
+- 根 `SKILL.md`：目录树对齐实际结构；新增 §3.1 子技能实现状态表（S1–S6 全部 ✅
+  + 已知缺口诚实登记：AHRQ 评分、S2 边界标记自动扫描）；§6 快速上手修正
+  （去除不存在的 project-scaffold 引用）
+- `skills/S1-search-strategy/scripts/generate_search_terms.py`：支持字典型
+  databases（"Web of Science" 等显示名归一）、date_range 别名、language_filter
+  （PubMed `[Language]` / WoS `LA=` 草稿接入；未支持库输出提示）；35 项自检
+- `skills/S2-screening-quality/scripts/screening_schema.py`：配置别名
+  （similarity_threshold / exclusion_reason_codes）、关键词组格式编译、
+  meta_analysis_disposition 与保留编码校验；46 项自检
+- `fulltext_screening.py`：全文不可得的排除编码改用专用 `fulltext_unavailable`
+  （原 insufficient_info 语义保留给"信息不足"）；输出表新增人工字段
+  `meta_disposition`（AI 留空）；21 项自检
+- `generate_inclusion_list.py`：meta_disposition 透传到 included/excluded
+  清单并校验闭集（未配置闭集却填值 → 拒绝）；23 项自检
+- S2 八份模板随 `meta_disposition` 列重生成（gen_templates 64 项自检）
+
 ### Added · S2-screening-quality 完整实现（v2 核心：AI 预处理 + 人工闸门）
 
 - `skills/S2-screening-quality/scripts/screening_schema.py` — S2 **单一来源**：

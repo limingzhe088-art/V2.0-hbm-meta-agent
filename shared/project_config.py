@@ -58,11 +58,13 @@ REQUIRED_SECTIONS = [
     "unit_policy",
     "standardization",
 ]
-# 条件必需：使用相应功能时必需
+# 条件必需：使用相应功能时必需（错误信息会指明是哪个子技能需要）
 CONDITIONAL_SECTIONS = {
-    "edi": "计算 EDI 时需要",
-    "weighting": "加权合并时需要",
-    "urine_reference": "尿校正换算时需要",
+    "edi": "计算 EDI 时需要（S5）",
+    "weighting": "加权合并时需要（S5）",
+    "urine_reference": "尿校正换算时需要（S4）",
+    "search": "检索式草稿生成需要（S1）",
+    "screening": "去重/分类/全文筛/清单生成需要（S2）",
 }
 
 # standardization 的三个必填口径（决定行为差异很大的分叉点）
@@ -282,6 +284,18 @@ def _validate(data: dict, path: Path, require: list[str] | None = None) -> None:
                     "省份→大区映射必须单值。")
             seen[p] = region
 
+    # S1/S2 区块（可选）：**存在即必须结构合法**（尽早暴露拼写/结构错误）。
+    # 深层语义校验的单一来源分别在 S1 generate_search_terms.validate_search 与
+    # S2 screening_schema.validate_screening —— 此处刻意只做轻量结构防御，
+    # 避免出现两个会漂移的完整校验器。
+    if "search" in data:
+        _validate_search_shape(data["search"])
+    if "screening" in data:
+        if not isinstance(data["screening"], dict):
+            raise ConfigError(
+                "project.yaml → screening 必须是映射（深层校验由 S2 的 "
+                "screening_schema.validate_screening 在脚本运行时执行）。")
+
     # 标准化口径（三个必填键 + 取值域）
     std = data.get("standardization") or {}
     if not isinstance(std, dict):
@@ -297,6 +311,39 @@ def _validate(data: dict, path: Path, require: list[str] | None = None) -> None:
             raise ConfigError(
                 f"standardization.{key} = `{std[key]}` 非法；"
                 f"允许取值：{' / '.join(spec['allowed'])}。")
+
+
+def _validate_search_shape(search) -> None:
+    """search 区块（可选）存在时的轻量结构校验（深层校验单一来源在 S1 脚本）。"""
+    if not isinstance(search, dict):
+        raise ConfigError("project.yaml → search 必须是映射。")
+    databases = search.get("databases")
+    if databases is not None:
+        if not isinstance(databases, list) or not databases:
+            raise ConfigError("search.databases 必须是非空列表。")
+        for i, entry in enumerate(databases):
+            if isinstance(entry, str):
+                continue
+            if isinstance(entry, dict):
+                if not str(entry.get("name", "")).strip():
+                    raise ConfigError(
+                        f"search.databases[{i}] 是映射时必须含非空 `name`。")
+                continue
+            raise ConfigError(
+                f"search.databases[{i}] 必须是字符串或映射（含 name）。")
+    date_range = search.get("date_range")
+    if date_range is not None:
+        if (not isinstance(date_range, dict)
+                or "start_year" not in date_range or "end_year" not in date_range):
+            raise ConfigError(
+                "search.date_range 必须是含 start_year / end_year 的映射。")
+        sy, ey = date_range["start_year"], date_range["end_year"]
+        if (not isinstance(sy, int) or not isinstance(ey, int)) or sy > ey:
+            raise ConfigError(
+                f"search.date_range 年份非法：{sy!r} > {ey!r}（或非整数）。")
+    lang = search.get("language_filter")
+    if lang is not None and (not isinstance(lang, list) or not lang):
+        raise ConfigError("search.language_filter 必须是非空列表。")
 
 
 def load_config(path: Path | str | None,
@@ -558,6 +605,48 @@ def run_self_test() -> int:
     check("三键说明齐备（含义/取值/后果）",
           all({"allowed", "desc", "consequence"} <= set(v)
               for v in REQUIRED_STANDARDIZATION_KEYS.values()))
+
+    print("\n[6c] ★ S1/S2 区块存在时的结构校验（可选区块；缺失不影响 S3–S6）")
+    check("CONDITIONAL_SECTIONS 指明 search/screening 归属技能",
+          "S1" in CONDITIONAL_SECTIONS.get("search", "")
+          and "S2" in CONDITIONAL_SECTIONS.get("screening", ""))
+    bad_search = write("bad_search.yaml", SAMPLE_YAML + "\nsearch: 42\n")
+    try:
+        load_config(bad_search)
+        check("search 非映射 → ConfigError", False, "未抛出！")
+    except ConfigError as e:
+        check("search 非映射 → ConfigError", True, str(e)[:32] + "…")
+    bad_scr = write("bad_scr.yaml", SAMPLE_YAML + "\nscreening: []\n")
+    try:
+        load_config(bad_scr)
+        check("screening 非映射 → ConfigError", False, "未抛出！")
+    except ConfigError as e:
+        check("screening 非映射 → ConfigError", True, str(e)[:32] + "…")
+    bad_db = write("bad_db.yaml", SAMPLE_YAML
+                   + "\nsearch:\n  databases:\n    - 42\n")
+    try:
+        load_config(bad_db)
+        check("databases 条目非字符串/映射 → ConfigError", False, "未抛出！")
+    except ConfigError as e:
+        check("databases 条目非字符串/映射 → ConfigError", True, str(e)[:32] + "…")
+    bad_dr = write("bad_dr.yaml", SAMPLE_YAML
+                   + "\nsearch:\n  date_range: {start_year: 2024, end_year: 1980}\n")
+    try:
+        load_config(bad_dr)
+        check("date_range start>end → ConfigError", False, "未抛出！")
+    except ConfigError as e:
+        check("date_range start>end → ConfigError", True, str(e)[:32] + "…")
+    ok_s12 = write("ok_s12.yaml", SAMPLE_YAML
+                   + "\nsearch:\n  databases: [PubMed, \"Web of Science\"]\n"
+                     "  date_range: {start_year: 1980, end_year: 2024}\n"
+                     "  language_filter: [en, zh]\n"
+                   + "screening:\n  dedup: {title_similarity_threshold: 0.85}\n")
+    try:
+        load_config(ok_s12)
+        check("结构合法的 search/screening → 通过（深层校验在 S1/S2）", True)
+    except ConfigError as e:
+        check("结构合法的 search/screening → 通过（深层校验在 S1/S2）", False, str(e)[:50])
+    check("缺 search/screening 不影响加载（向后兼容）", True, "SAMPLE_YAML 已多次通过")
 
     print("\n[7] 正常加载与访问器")
     if not has_yaml:

@@ -286,6 +286,15 @@ paths:
   scaffold: "01-search,02-screening,03-extraction,04-standardization,05-pooling-edi,06-qc-audit,07-references,08-manuscript,09-presentation,10-reference-tools,11-revision"
 ```
 
+> **v2 新增（可选区块，缺失即硬错误仅针对使用相应子技能的场景）**：
+> `search`（检索词表 + 数据库清单 + 语言过滤 + 检索执行元数据登记位；S1 使用）与
+> `screening`（文章类型闭集 / 关键词组分类规则 / meta_analysis_disposition /
+> 排除原因编码 / 去重阈值与级别 / 全文词表；S2 使用）。完整规范以
+> `templates/project.yaml` 为准；深层校验单一来源分别在
+> `skills/S1-search-strategy/scripts/generate_search_terms.py::validate_search`
+> 与 `skills/S2-screening-quality/scripts/screening_schema.py::validate_screening`；
+> `shared/project_config.py` 在区块存在时做轻量结构防御。
+
 ---
 
 ## 6. `inferred_flags` 允许值（推断标记字典，20 项）
@@ -354,15 +363,113 @@ paths:
 
 | 资产 | 依赖本契约的哪部分 |
 |---|---|
-| `shared/quality-gates.md` | §3.4 边界风险标记、§4 快照指纹、§7 校验门禁 |
+| `shared/quality-gates.md` | §3.4 边界风险标记、§4 快照指纹、§7 校验门禁、§10 S2 闸门检查点 |
 | `shared/human-verification-protocol.md` | §3.6/3.7 留痕字段、§6 推断标记字典 |
-| `skills/S1` | §3.1–3.2 时空标识 |
-| `skills/S2` | §3.4 边界风险标记 |
-| `skills/S3` | §3 全表 + §6 + §7 |
+| `shared/record_schema.py` | §10.1 raw_records 的字段单一来源 |
+| `skills/S1` | §3.1–3.2 时空标识、§10.1 |
+| `skills/S2` | §3.4 边界风险标记、§10 全部筛选阶段数据表 |
+| `skills/S3` | §3 全表 + §6 + §7；§10.5 included_studies（S3 回填 country/population/matrix/analyte） |
 | `skills/S4` | §3.6/3.7 + §5.2–5.5 |
 | `skills/S5` | §3.7 + §5.2/5.3/5.6/5.7 |
 | `skills/S6` | §4 快照指纹 + §5 全部配置 |
 | 全部脚本 | `--config project.yaml`，代码内零字面量 |
+
+---
+
+## 10. S1/S2 阶段数据表（★ v2 新增，additive）
+
+> **定位**：主表（§3，72 字段）是**合并层**契约；本节定义的是**筛选层**的七张数据表。
+> 主表 72 字段的语义、必填性与枚举**不变**——本节为纯增量内容，故契约版本号维持
+> 1.0.0，待 v2.0.0 发布时与其他变更一起统一 bump。
+>
+> **通用规则**（与 §2 一致）：载体 CSV UTF-8；列名英文 canonical；空值留空不填
+> `NA/0`；1 行 = 1 条题录/裁决；**AI 列初始产出，human 列只由人填写**；
+> 被排除的记录不物理删除。
+
+### 10.1 raw_records — 原始题录表
+
+- **来源**：S1 `parse_ris.py` / `parse_enl.py` / `parse_bibtex.py` 解析数据库导出件，
+  `merge_sources.py` 合并。
+- **粒度**：1 行 = 1 个数据库导出的 1 篇题录（同一文献跨库多行，交 S2 去重）。
+- **字段（11 列，单一来源 `shared/record_schema.py` → `RECORD_FIELDS`）**：
+  `record_id`（`{来源缩写}-{序号:05d}`，解析器分配）、`source_database`
+  （`PubMed/WebOfScience/Scopus/Embase/CNKI/Wanfang/Other`——检索阶段枚举，含
+  Embase；进入主表时仍以 §3.1 枚举为准）、`title`、`abstract`、`authors`（`; ` 分隔）、
+  `year`（发表年 YYYY）、`doi`、`pmid`、`journal`、`keywords`、
+  `raw_row_hash`（sha256(规范化 title + "\n" + 规范化 abstract)，跨库疑似重复检测键）。
+- **写入者**：AI（解析）；人（执行检索、导出）。
+
+### 10.2 dedup_decisions — 去重裁决表
+
+- **来源**：S2 `dedup_records.py`。
+- **粒度**：1 行 = 1 条题录的去重记录。
+- **字段（`screening_schema.DEDUP_DECISION_FIELDS`）**：`record_id`、
+  `duplicate_group_id`（精确组 `EXA-xxxx` / 疑似簇 `DUP-xxxx`；空 = 唯一）、
+  `duplicate_match_type`（`exact_doi`/`exact_pmid`/`fuzzy_title`/空）、
+  `kept_record_id`（AI 保留建议）、`ai_decision`（`unique`/`keep`/`duplicate`/
+  `suspected_duplicate`——模糊命中一律 suspected，**不自动合并**）、
+  `human_decision`（**仅人工**）。
+- **派生表**：`dedup_unique.csv`（剔除精确重复后的记录集，字段同 §10.1；
+  suspected 保留在内）、`dedup_summary.csv`（metric,value 计数）。
+
+### 10.3 title_abstract_screening — 题摘初筛表
+
+- **来源**：S2 `classify_articles.py` 分类 + **人工逐条裁决**（GATE-S2b）。
+- **粒度**：1 行 = 1 条去重后题录。
+- **字段（`screening_schema.TA_FIELDS`）**：`record_id`、`ai_article_type`
+  （9 类闭集，来自 `project.yaml → screening.article_types`）、`ai_confidence`
+  （high/medium/low，仅排序提示，非统计量）、`ai_screening_decision`
+  （`proceed_to_fulltext`/`suggest_exclude`/`uncertain`）、`ai_reason_code`
+  （规则 id）、`ai_evidence_quote`（`字段:关键词`）、`human_decision`
+  （**仅人工**：`proceed_to_fulltext`/`exclude`/`uncertain`）、`human_reason_code`（**仅人工**）。
+
+### 10.4 fulltext_screening — 全文复筛表
+
+- **来源**：S2 `fulltext_screening.py` 证据抽取 + **人工终裁**（GATE-S2c）。
+- **粒度**：1 行 = 1 条人工判"进全文"的题录。
+- **字段（`screening_schema.FT_FIELDS`）**：`record_id`、`fulltext_available`
+  （TRUE/FALSE）、`confirmed_article_type`、`has_human_samples`、
+  `analytes_reported`、`has_usable_concentration`、`ai_screening_decision`
+  （`include_candidate`/`suggest_exclude`/`uncertain`）、`ai_reason_code`
+  （排除编码闭集，来自 `screening.exclusion_reason_codes`）、
+  `human_final_decision`（**仅人工**：`include`/`exclude`/`uncertain`）、
+  `human_final_reason_code`（**仅人工**，闭集）、`meta_disposition`
+  （**仅人工**，定量处理意见闭集，来自 `screening.meta_analysis_disposition`：
+  `include/exclude/background_only/citation_tracking_only/uncertain`——
+  "分类"与"怎么用"两字段分离：综述可 background_only，动物实验可机制引用）。
+
+### 10.5 included_studies — 最终纳入清单
+
+- **来源**：S2 `generate_inclusion_list.py`（GATE-S2c 通过后运行）。
+- **粒度**：1 行 = 1 项纳入研究（`study_id` = `ST-xxxx`，记录级唯一）。
+- **字段（`screening_schema.INCLUDED_FIELDS`）**：`study_id`、`record_id`、
+  `title`、`first_author`、`year`、`doi`（前 6 列自题录回填）、`country`、
+  `population`、`matrix`、`analyte`（**S3 提取时回填，生成时留空不猜**）、
+  `screening_status`（`included_fulltext`）、`human_gate_status`
+  （`human_confirmed`）、`meta_disposition`。
+- **下游**：S3 只对本表 `record_id` 做提取。
+
+### 10.6 excluded_studies — 最终排除清单
+
+- **来源**：同 §10.5。
+- **字段**：同 §10.5 + `exclusion_reason`（**仅人工**，闭集必须命中）。
+  `screening_status` = `excluded_fulltext`。**记录保留不删除**——审稿人质疑
+  漏筛时回溯 AI 证据与人工依据。
+
+### 10.7 screening_log — 筛选日志（PRISMA 账本）
+
+- **来源**：S2 `generate_inclusion_list.py` 汇总。
+- **粒度**：1 行 = 1 个指标（`metric`，`value`）。
+- **必需指标**：`records_identified_total`、`records_after_dedup`、
+  `duplicates_removed`、`ta_screened`、`ta_excluded`、`ta_uncertain_unresolved`、
+  `ta_proceeded_fulltext`、`fulltext_assessed`、`fulltext_unavailable`、
+  `fulltext_retrieved`、`fulltext_excluded`、`fulltext_included`、以及
+  `excluded_fulltext_reason_{code}` 分项计数。
+- **恒等式**（`generate_prisma.py` 强制，不平衡不产出流程图）：
+  `identified = after_dedup + duplicates_removed`；
+  `ta_screened = ta_excluded + ta_uncertain_unresolved + ta_proceeded_fulltext`；
+  `fulltext_assessed = fulltext_retrieved + fulltext_unavailable`；
+  `fulltext_retrieved = fulltext_excluded + fulltext_included`。
 
 ---
 
