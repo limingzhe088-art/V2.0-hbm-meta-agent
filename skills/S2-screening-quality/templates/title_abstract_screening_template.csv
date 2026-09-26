@@ -1,0 +1,3 @@
+record_id,ai_article_type,ai_confidence,ai_screening_decision,ai_reason_code,ai_evidence_quote,human_decision,human_reason_code
+pubmed-00001,human_hbm_original,high,proceed_to_fulltext,hbm_title,title_any:urinary,proceed_to_fulltext,
+scopus-00001,other,low,uncertain,no_rule_matched,,proceed_to_fulltext,

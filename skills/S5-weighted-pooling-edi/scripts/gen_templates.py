@@ -8,10 +8,14 @@ gen_templates.py — 从实现代码生成 CSV 模板（禁止手写模板值）
   S5  templates/pooled_results_OUTPUT_example.csv
   S1  skills/S1-search-strategy/templates/raw_records_template.csv
   S1  skills/S1-search-strategy/templates/source_summary_template.csv
+  S2  skills/S2-screening-quality/templates/{dedup_decisions, dedup_summary,
+      title_abstract_screening, screening_summary, fulltext_screening,
+      included_studies, excluded_studies, screening_log}_template.csv
 
 动机
   手写 CSV 模板反复出现两类错误：列错位与数值与代码不一致。
-  本脚本按"已提交模板纪律"（STEP4-TODO.md **C2**）改为：模板值**一律由实现代码算出**。
+  本脚本按"已提交模板纪律"（STEP4-TODO.md **C2**）改为：模板值**一律由实现代码算出**
+  （S2 模板由 S2 的去重/分类/清单引擎对内置夹具真实运行算出）。
 
 用法
   python gen_templates.py --self-test        # 校验模板与代码一致性（CI 用）
@@ -49,8 +53,17 @@ from record_schema import (  # noqa: E402
     NOTE_PENDING_FILL, RECORD_FIELDS, SUMMARY_FIELDS, compute_row_hash,
 )
 
+# S2 实现代码（模板生成器消费实现，方向永远是 生成器 → 实现，不存在技能间数据依赖）
+sys.path.insert(0, str(_REPO / "skills" / "S2-screening-quality" / "scripts"))
+import screening_schema as s2  # noqa: E402
+import dedup_records as s2_dedup  # noqa: E402
+import classify_articles as s2_classify  # noqa: E402
+import fulltext_screening as s2_ft  # noqa: E402
+import generate_inclusion_list as s2_list  # noqa: E402
+
 TPL_DIR = Path(__file__).resolve().parent.parent / "templates"
 S1_TPL_DIR = _REPO / "skills" / "S1-search-strategy" / "templates"
+S2_TPL_DIR = _REPO / "skills" / "S2-screening-quality" / "templates"
 
 # ★ 模板命名约定：**输出示例**必须带 `_OUTPUT_example` 后缀，
 #   以免被误当作某个 Skill 的**输入**（例如把 S5 的合并结果当 S4 的输入）。
@@ -240,6 +253,135 @@ def build_source_summary_rows() -> tuple[list[str], list[list[str]]]:
 
 
 # ===========================================================================
+# 2c. S2 筛选质控模板（值由 S2 引擎对内置夹具**真实运行**算出）
+# ===========================================================================
+
+S2_DEDUP_DECISIONS_TPL = "dedup_decisions_template.csv"
+S2_DEDUP_SUMMARY_TPL = "dedup_summary_template.csv"
+S2_TA_TPL = "title_abstract_screening_template.csv"
+S2_SUMMARY_TPL = "screening_summary_template.csv"
+S2_FT_TPL = "fulltext_screening_template.csv"
+S2_INCLUDED_TPL = "included_studies_template.csv"
+S2_EXCLUDED_TPL = "excluded_studies_template.csv"
+S2_LOG_TPL = "screening_log_template.csv"
+
+# S2 夹具：3 条题录（A/B 同 DOI；C 唯一）→ 走真实去重/分类/全文/清单引擎
+_S2_RECORDS = [
+    {"record_id": "pubmed-00001", "source_database": "PubMed",
+     "title": "Urinary arsenic in general population of China",
+     "abstract": "A biomonitoring survey reporting geometric mean concentrations.",
+     "authors": "Zhang, San; Li, Si", "year": "2020",
+     "doi": "10.1234/a.2020.001", "pmid": "32456789",
+     "journal": "Environmental Research", "keywords": "arsenic",
+     "raw_row_hash": ""},
+    {"record_id": "wos-00001", "source_database": "WebOfScience",
+     "title": "URINARY ARSENIC IN GENERAL POPULATION OF CHINA",
+     "abstract": "", "authors": "Zhang, San", "year": "2020",
+     "doi": "10.1234/a.2020.001", "pmid": "", "journal": "J",
+     "keywords": "", "raw_row_hash": ""},
+    {"record_id": "scopus-00001", "source_database": "Scopus",
+     "title": "Blood mercury in parturients",
+     "abstract": "Mercury levels measured in 200 pregnant women.",
+     "authors": "Wang, Wu", "year": "2021", "doi": "10.1234/b.2021.002",
+     "pmid": "", "journal": "Chemosphere", "keywords": "mercury",
+     "raw_row_hash": ""},
+]
+
+_S2_FULLTEXT = {
+    "pubmed-00001": "Methods: urinary arsenic measured in 1200 adults recruited "
+                    "in 2015. Results: geometric mean 35.2 ug/L (95% CI 30-41). "
+                    "Participants were general residents.",
+    "scopus-00001": "Methods: mercury concentrations measured in 200 pregnant "
+                    "women recruited in 2015. Results: geometric mean 0.9 ug/L "
+                    "(95% CI 0.7-1.1). Participants were general residents.",
+}
+
+# 空摘要记录在 fixture 中留空 → normalize 引擎按空串处理
+_S2_FIX_RECORDS = [dict(r) for r in _S2_RECORDS]
+
+
+def build_s2_rows() -> dict[str, tuple[list[str], list[list[str]]]]:
+    """
+    返回 {模板名: (表头, 行)}。全部值由 S2 实现代码算出：
+    去重 → 分类 → 汇总 → 全文 → 清单 → 日志（一条微型流水线）。
+    """
+    spec = s2.load_fixture_spec()
+
+    # S2-A：去重（夹具跑真实引擎）
+    decisions, unique_rows, stats = s2_dedup.build_dedup(_S2_FIX_RECORDS, spec)
+    out: dict[str, tuple[list[str], list[list[str]]]] = {}
+    out[S2_DEDUP_DECISIONS_TPL] = (
+        list(s2.DEDUP_DECISION_FIELDS),
+        [[d.get(f, "") for f in s2.DEDUP_DECISION_FIELDS] for d in decisions])
+    out[S2_DEDUP_SUMMARY_TPL] = (
+        list(s2.LOG_FIELDS),
+        [[r["metric"], r["value"]] for r in s2_dedup.summary_rows(stats)])
+
+    # S2-B：分类 + 汇总
+    ta_rows = s2_classify.classify_records(unique_rows, spec)
+    out[S2_TA_TPL] = (
+        list(s2.TA_FIELDS),
+        [[r.get(f, "") for f in s2.TA_FIELDS] for r in ta_rows])
+    # 模板示例中人工列给两条示例裁决（均 proceed，与全文夹具一致）——
+    # 人工列取值域见 screening_schema.HUMAN_TA_DECISIONS；未示例的排除写法见
+    # excluded_studies 模板（human_final_reason_code 走闭集 wrong_analyte）
+    for i, r in enumerate(out[S2_TA_TPL][1]):
+        if i in (0, 1):
+            r[s2.TA_FIELDS.index("human_decision")] = "proceed_to_fulltext"
+    out[S2_SUMMARY_TPL] = (
+        list(s2.SUMMARY_FIELDS),
+        [[r["scope"], r["category"], r["count"]]
+         for r in s2_classify_summary_rows(ta_rows, spec)])
+
+    # S2-C：全文（夹具全文写临时目录；人工终裁给示例值）
+    import tempfile
+    tmp = Path(tempfile.mkdtemp(prefix="hbm_s2_tpl_"))
+    ft_dir = tmp / "fulltexts"
+    ft_dir.mkdir(parents=True, exist_ok=True)
+    for rid, text in _S2_FULLTEXT.items():
+        (ft_dir / f"{rid}.txt").write_text(text, encoding="utf-8")
+    ta_for_ft = []
+    for r in ta_rows:
+        row = dict(r)
+        row["human_decision"] = "proceed_to_fulltext"
+        ta_for_ft.append(row)
+    ft_rows, _stats = s2_ft.build_ft_rows(ta_for_ft, unique_rows, spec,
+                                          (1980, 2024), ft_dir)
+    out[S2_FT_TPL] = (
+        list(s2.FT_FIELDS),
+        [[r.get(f, "") for f in s2.FT_FIELDS] for r in ft_rows])
+
+    # 收口：清单 + 日志（人工终裁示例：首条 include，其余 exclude 带闭集编码）
+    ft_final = []
+    for i, r in enumerate(ft_rows):
+        row = dict(r)
+        if i == 0:
+            row["human_final_decision"] = "include"
+        else:
+            row["human_final_decision"] = "exclude"
+            row["human_final_reason_code"] = "wrong_analyte"
+        ft_final.append(row)
+    included, excluded, log_rows, _stats2 = s2_list.build_lists(
+        ft_final, unique_rows, ta_for_ft, spec)
+    out[S2_INCLUDED_TPL] = (
+        list(s2.INCLUDED_FIELDS),
+        [[r.get(f, "") for f in s2.INCLUDED_FIELDS] for r in included])
+    out[S2_EXCLUDED_TPL] = (
+        list(s2.EXCLUDED_FIELDS),
+        [[r.get(f, "") for f in s2.EXCLUDED_FIELDS] for r in excluded])
+    out[S2_LOG_TPL] = (
+        list(s2.LOG_FIELDS),
+        [[r["metric"], r["value"]] for r in log_rows])
+    return out
+
+
+def s2_classify_summary_rows(ta_rows: list[dict], spec: dict):
+    """screening_summary.build_summary 的薄封装（避免循环导入名字歧义）。"""
+    import screening_summary as s2_sum
+    return s2_sum.build_summary(ta_rows, spec)
+
+
+# ===========================================================================
 # 3. 写盘与校验
 # ===========================================================================
 
@@ -370,12 +512,15 @@ def run_self_test() -> int:
           any("解释谨慎" in r[ni] for r in pooled_rows))
 
     print("\n[9] 与已提交文件的一致性（若文件存在）")
-    tpl_specs = [(TPL_DIR / EDI_TPL_NAME, EDI_HEADER, edi_rows),
-                 (TPL_DIR / POOLED_TPL_NAME, pooled_header, pooled_rows)]
     raw_header, raw_rows = build_raw_records_rows()
     sum_header, sum_rows = build_source_summary_rows()
-    tpl_specs += [(S1_TPL_DIR / RAW_TPL_NAME, raw_header, raw_rows),
-                  (S1_TPL_DIR / SUMMARY_TPL_NAME, sum_header, sum_rows)]
+    tpl_specs = [(TPL_DIR / EDI_TPL_NAME, EDI_HEADER, edi_rows),
+                 (TPL_DIR / POOLED_TPL_NAME, pooled_header, pooled_rows),
+                 (S1_TPL_DIR / RAW_TPL_NAME, raw_header, raw_rows),
+                 (S1_TPL_DIR / SUMMARY_TPL_NAME, sum_header, sum_rows)]
+    s2_specs = build_s2_rows()
+    for name, (header, rows) in s2_specs.items():
+        tpl_specs.append((S2_TPL_DIR / name, header, rows))
     for p, header, rows in tpl_specs:
         name = p.name
         if not p.exists():
@@ -405,6 +550,39 @@ def run_self_test() -> int:
     check("待回填提示语来自单一来源常量",
           any(r[sum_header.index("note")] == NOTE_PENDING_FILL for r in sum_rows))
 
+    print("\n[11] S2 筛选模板（值由 S2 引擎真实运行算出）")
+    check("S2 模板共 8 份", len(s2_specs) == 8, str(sorted(s2_specs)))
+    dd_header, dd_rows = s2_specs[S2_DEDUP_DECISIONS_TPL]
+    dd_by = {r[dd_header.index("record_id")]: r for r in dd_rows}
+    ai_idx = dd_header.index("ai_decision")
+    check("去重模板：精确重复标 duplicate（pubmed-00001/wos-00001 同 DOI）",
+          dd_by["wos-00001"][ai_idx] == "duplicate")
+    check("去重模板：human_decision 列全部留空（只由人填写）",
+          all(r[dd_header.index("human_decision")] == "" for r in dd_rows))
+    check("去重模板：决策值在闭集内",
+          {r[ai_idx] for r in dd_rows} <= set(s2.DEDUP_AI_DECISIONS))
+    ta_header, ta_rows_s2 = s2_specs[S2_TA_TPL]
+    check("题摘模板：AI 类型在配置闭集内",
+          {r[ta_header.index("ai_article_type")] for r in ta_rows_s2}
+          <= set(s2.load_fixture_spec()["article_types"]))
+    ft_header, ft_rows_s2 = s2_specs[S2_FT_TPL]
+    check("全文模板：排除编码在闭集内",
+          all(r[ft_header.index("ai_reason_code")] in
+              s2.load_fixture_spec()["exclusion_reasons"]
+              or r[ft_header.index("ai_reason_code")] == "" for r in ft_rows_s2))
+    log_header, log_rows_s2 = s2_specs[S2_LOG_TPL]
+    log_by = {r[log_header.index("metric")]: r[log_header.index("value")]
+              for r in log_rows_s2}
+    check("日志模板数字自洽（identification 恒等式）",
+          int(log_by["records_identified_total"])
+          == int(log_by["records_after_dedup"]) + int(log_by["duplicates_removed"]))
+    inc_rows = s2_specs[S2_INCLUDED_TPL][1]
+    exc_rows = s2_specs[S2_EXCLUDED_TPL][1]
+    check("清单模板：纳入 + 排除 = 全文评估数",
+          len(inc_rows) + len(exc_rows) == int(log_by["fulltext_assessed"]))
+    check("S2 模板确定性（两次构建一致）",
+          build_s2_rows() == s2_specs)
+
     print("\n" + "-" * 70)
     failed = [c for c in checks if not c[1]]
     if failed:
@@ -433,14 +611,18 @@ def main(argv=None) -> int:
         sum_header, sum_rows = build_source_summary_rows()
         TPL_DIR.mkdir(parents=True, exist_ok=True)
         S1_TPL_DIR.mkdir(parents=True, exist_ok=True)
+        S2_TPL_DIR.mkdir(parents=True, exist_ok=True)
         write_csv(TPL_DIR / EDI_TPL_NAME, EDI_HEADER, edi_rows)
         write_csv(TPL_DIR / POOLED_TPL_NAME, pooled_header, pooled_rows)
         write_csv(S1_TPL_DIR / RAW_TPL_NAME, raw_header, raw_rows)
         write_csv(S1_TPL_DIR / SUMMARY_TPL_NAME, sum_header, sum_rows)
+        for name, (header, rows) in build_s2_rows().items():
+            write_csv(S2_TPL_DIR / name, header, rows)
         print(f"已生成：{TPL_DIR / EDI_TPL_NAME}")
         print(f"已生成：{TPL_DIR / POOLED_TPL_NAME}")
         print(f"已生成：{S1_TPL_DIR / RAW_TPL_NAME}")
         print(f"已生成：{S1_TPL_DIR / SUMMARY_TPL_NAME}")
+        print(f"已生成：S2 模板 8 份 → {S2_TPL_DIR}")
         return 0
 
     return run_self_test()

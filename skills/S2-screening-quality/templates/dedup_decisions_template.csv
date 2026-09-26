@@ -1,0 +1,4 @@
+record_id,duplicate_group_id,duplicate_match_type,kept_record_id,ai_decision,human_decision
+pubmed-00001,,exact_doi,pubmed-00001,keep,
+wos-00001,EXA-0001,exact_doi,pubmed-00001,duplicate,
+scopus-00001,,,,unique,

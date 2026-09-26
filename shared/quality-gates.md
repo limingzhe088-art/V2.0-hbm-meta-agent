@@ -30,6 +30,9 @@
 |---|---|---|---|---|
 | GATE-0 | 立项与口径冻结 | 人工设定 | 硬 | 无法启动任何分析 |
 | GATE-1 | 检索充分性 | 人工确认 | 硬 | 不得进入筛选 |
+| GATE-S2a | S2 原始数据验收 | 人工确认 | 硬 | 不得开始去重与初筛 |
+| GATE-S2b | S2 题摘筛选后确认 | 人工确认 | 硬 | 不得进入全文筛 |
+| GATE-S2c | S2 全文筛选后确认 | 人工确认 | 硬 | 不得产出正式纳入清单 |
 | GATE-2 | 人群边界裁决 | **领域知识** | 硬 | 不得进入标准化 |
 | GATE-3 | 数据真实性复核 | **领域知识** | 硬 | 主表不得冻结 |
 | GATE-4 | 标准化口径确认 | 人工确认 | 硬 | 不得进入合并 |
@@ -200,6 +203,50 @@
 **硬规则**：**正文中不允许出现无法追溯的"孤儿数字"。** 这是本项目审稿意见 R1-3（r=0.069 与 P 不匹配）、R2-2（时段 GM 过时）、R3-1（分期不统一）三条的共同根因。
 
 **产出文档**：`06-qc-audit/02_数值审计对照表.md`
+
+---
+
+## S2 阶段闸门（GATE-S2a / GATE-S2b / GATE-S2c）　★ v2 新增
+
+> **定位**：S2（AI 预处理 + 人工闸门筛选，`skills/S2-screening-quality/`）内部的三个
+> 人工确认点。它们不取代 **GATE-2**（人群边界裁决，契约级领域知识闸门）——S2c 确认
+> "筛选流程走完且人拍板"，GATE-2 在 S3 提取前对边界人群记录逐条裁决；两者都通过
+> 才能启动 A3。三个闸门的**脚本检查点由 S2 脚本强制执行**（不满足 → 退出码 2），
+> 但 `passed` 状态仍只能由人写入 `_state/gates.json`（权限铁律不变）。
+
+### GATE-S2a · 原始数据验收
+
+**触发条件**：S1 完成，`all_raw_records.csv` 已合并。
+**AI 产出物**：`all_raw_records.csv` + `source_summary.csv`（检索式/命中数由人工回填）。
+**人工裁决项**：数据库检索已完成；导出文件完整（命中数 vs 导出数差异可解释）；
+各库检索式原文已留存；未预先注册声明（或 PROSPERO 编号）已确认。
+**脚本检查点**：输入 CSV 表头与 RECORD_FIELDS 一致、record_id 唯一（`normalize_records.py` 强制）。
+**未通过信号**：任一库缺检索式原文；hit_count 与 exported_count 差异无法解释。
+
+### GATE-S2b · 题目摘要筛选后确认
+
+**触发条件**：S2-A 去重 + S2-B 分类完成，`title_abstract_screening.csv` 已产出。
+**AI 产出物**（只有建议与证据，没有结论）：`dedup_decisions.csv`（AI 保留建议 +
+疑似重复清单）、`title_abstract_screening.csv`（9 类文章类型 + 三值建议 +
+规则 id 与命中证据）、`screening_summary.csv`。
+**人工裁决项**：去重结果可接受（翻案任何 `duplicate`/`suspected_duplicate` 建议）；
+进入全文的文献集可接受；**AI 建议排除的记录也已复核**（漏筛检查）；uncertain 全部处置。
+**写入字段**（仅人工可写）：`human_decision`、`human_reason_code`、`cohort_id`（同队列聚簇）。
+**脚本检查点**：`human_decision` 无空值 —— `fulltext_screening.py` 启动时强制，
+存在空值即退出码 2。
+**未通过信号**：human_decision 存在空值；AI 排除记录未复核即放行。
+
+### GATE-S2c · 全文筛选后确认
+
+**触发条件**：S2-C 全文筛完成，`fulltext_screening.csv` 已产出。
+**AI 产出物**：全文证据表（人体样本/分析物/统计量/年份命中）+ 三值建议 +
+排除编码建议（闭集）+ `fulltext_unavailable` 清单。
+**人工裁决项**：最终纳入/排除逐条定案（uncertain 必须处置）；排除原因按闭集填写；
+重复队列处理规则（指定 `cohort_id`，与 GATE-2 衔接）；背景文献与定量文献分离。
+**写入字段**（仅人工可写）：`human_final_decision`、`human_final_reason_code`。
+**脚本检查点**：`generate_inclusion_list.py` 强制 human_final_decision 全填、
+无 uncertain、排除编码在闭集内；`generate_prisma.py` 强制四条 PRISMA 恒等式平衡。
+**未通过信号**：清单中混入未裁决记录；screening_log 数字对不上账。
 
 ---
 

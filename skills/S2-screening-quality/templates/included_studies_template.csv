@@ -1,0 +1,2 @@
+study_id,record_id,title,first_author,year,doi,country,population,matrix,analyte,screening_status,human_gate_status
+ST-0001,pubmed-00001,Urinary arsenic in general population of China,"Zhang, San",2020,10.1234/a.2020.001,,,,,included_fulltext,human_confirmed

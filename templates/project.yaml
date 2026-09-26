@@ -146,3 +146,87 @@ search:
     cell: ["in vitro", "cell line", "cell culture"]
     occupational: ["workers", "occupational exposure", "smelter", "miners"]
     clinical: ["case report", "case reports", "clinical trial"]
+
+# =============================================================================
+# 筛选质控（★ 条件必需区块：使用 S2 的任一脚本时必需，缺失即硬错误。
+# 其余脚本不读取本区块。）
+#
+# 这里承载 S2 的全部闭集与阈值 —— 分类规则、排除原因、去重参数都可扩展，
+# 但必须显式配置（代码里零字面量、零默认值）。改动 = 改筛选口径：
+# 须 bump config_version 并复跑 S2 全流程（stale 回滚）。
+#
+# 状态机：raw → deduplicated → title_abstract_reviewed → fulltext_retrieved
+#         → fulltext_reviewed → included / excluded（uncertain 为中间态；
+#         被排除的记录不物理删除）
+# 人工闸门：GATE-S2a（原始数据验收）/ GATE-S2b（题摘裁决）/ GATE-S2c（全文终裁）
+# =============================================================================
+screening:
+  dedup:
+    title_similarity_threshold: 0.85   # 词 bigram Jaccard 阈值；(0, 1]
+    author_match_required: true        # 模糊聚簇是否要求第一作者一致
+    year_tolerance: 0                  # 模糊聚簇允许的年份差（任一年份缺失则放行）
+  min_text_chars: 40                   # 题摘文本低于此长度 → insufficient_info
+  analyte_terms:                       # 分类与全文核对用的分析物词（小写匹配）
+    - "arsenic"
+    - "砷"
+  article_types:                       # 文章类型闭集（含两个保留类型）
+    - human_hbm_original
+    - human_non_hbm
+    - review
+    - animal_study
+    - in_vitro_study
+    - methodology
+    - policy_or_comment
+    - other
+    - insufficient_info
+  type_decision_map:                   # 类型 → 题摘 AI 建议（必须全覆盖）
+    human_hbm_original: "proceed_to_fulltext"
+    human_non_hbm: "uncertain"
+    review: "suggest_exclude"
+    animal_study: "suggest_exclude"
+    in_vitro_study: "suggest_exclude"
+    methodology: "uncertain"
+    policy_or_comment: "suggest_exclude"
+    other: "uncertain"
+    insufficient_info: "uncertain"
+  classification_rules:                # 有序规则：自上而下首中即判
+    - {id: review_title, type: review,
+       title_any: ["systematic review", "meta-analysis", "scoping review", "综述"]}
+    - {id: review_abstract, type: review,
+       abstract_any: ["systematic review", "meta-analysis"]}
+    - {id: animal_title, type: animal_study,
+       title_any: ["mice", "mouse", "rats", "zebrafish", "rabbits",
+                    "大鼠", "小鼠", "动物实验"]}
+    - {id: invitro_title, type: in_vitro_study,
+       title_any: ["in vitro", "cell line", "cell culture", "hepg2", "体外"]}
+    - {id: policy_title, type: policy_or_comment,
+       title_any: ["editorial", "commentary", "guideline", "policy", "述评", "指南"]}
+    - {id: method_title, type: methodology,
+       title_any: ["analytical method", "method validation", "determination of",
+                    "speciation", "检测方法"]}
+    - {id: hbm_title, type: human_hbm_original,
+       title_any: ["biomonitoring", "urinary", "blood", "cord blood",
+                    "internal exposure", "生物监测", "内暴露", "尿砷", "血砷"],
+       require_analyte: true}
+    - {id: hbm_abstract, type: human_hbm_original,
+       abstract_any: ["biomonitoring", "geometric mean", "urinary concentrations",
+                      "biological monitoring"],
+       require_analyte: true}
+  exclusion_reasons:                   # 全文排除原因闭集（判定标准见
+    - not_human_study                  #   skills/S2-screening-quality/references/exclusion_reasons.md）
+    - wrong_analyte
+    - no_hbm_data
+    - no_usable_values
+    - wrong_population
+    - wrong_year
+    - duplicate_cohort
+    - review_or_comment
+    - conference_abstract
+    - insufficient_info
+  fulltext_rules:                      # 全文四问的词表
+    human_sample_terms: ["participants", "subjects", "residents", "pregnant",
+                         "children", "adults", "newborns", "volunteers",
+                         "人群", "居民", "孕妇", "儿童", "受试者"]
+    concentration_stat_terms: ["geometric mean", "arithmetic mean", "median",
+                               "95% ci", "standard deviation", "ug/l", "μg/l",
+                               "ng/ml", "μg/g", "ng/g", "几何均值", "中位数", "均值"]

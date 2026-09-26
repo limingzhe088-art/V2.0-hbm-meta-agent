@@ -3,8 +3,8 @@
 # 安装：pip install -r requirements.txt
 #
 # 说明：核心脚本对 **纯标准库** 的依赖很高（hashlib / csv / json / argparse /
-# datetime / re / statistics），下列第三方包按"必需 / 可选"分组。
-# CI 只安装"必需"组即可跑通全部 --self-test。
+# datetime / re / statistics），下列第三方包按"必需 / 条件必需 / 可选"分组。
+# CI 安装"必需 + 条件必需"组，即可跑通全部 --self-test。
 
 # ── 必需 ─────────────────────────────────────────────────────────────
 # project.yaml 解析（shared/project_config.py）—— 缺失即硬错误，不做兜底
@@ -13,6 +13,12 @@ PyYAML>=6.0
 # 读取主表 .xlsx（validate_table / convert_units / weighted_gm /
 # edi_calculation / snapshot / audit_numbers / dedup_screen / sensitivity）
 openpyxl>=3.1.0
+
+# ── 条件必需（S2 全文筛选：有 PDF 全文时必需）───────────────────────
+# fulltext_screening.py 解析 PDF（{record_id}.pdf）。
+# ★ 不做静默降级：缺库且有 PDF 待处理时脚本显式报错（退出码 2）。
+# 无 PDF（仅 HTML/TXT 全文）时可不安装；--self-test 不依赖它。
+PyMuPDF>=1.24.0
 
 # ── 可选（增强；未安装时脚本自动降级，不影响 --self-test）────────────
 # 统计计算（加权分位数、回归）——当前实现用标准库完成，
@@ -24,7 +30,8 @@ openpyxl>=3.1.0
 # pandas>=2.0.0
 # numpy>=1.24.0
 #
-# 文档与文献库解析（STEP4-TODO.md F3，尚未实现）
+# 文档解析（.docx 原生解析，见 STEP4-TODO.md F3；RIS/EndNote/BibTeX 已由 S1
+# 标准库实现，无需第三方库）
 # python-docx>=1.1.0
 
 # ── 开发/CI（可选）────────────────────────────────────────────────

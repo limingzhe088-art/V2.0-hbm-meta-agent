@@ -7,6 +7,38 @@
 
 ## [Unreleased]
 
+### Added · S2-screening-quality 完整实现（v2 核心：AI 预处理 + 人工闸门）
+
+- `skills/S2-screening-quality/scripts/screening_schema.py` — S2 **单一来源**：
+  闭集枚举（状态机 / AI·人工决策 / 置信度）、`project.yaml → screening` 配置校验
+  （缺失或非法 → ConfigError 硬错误）、词 bigram Jaccard 标题相似度、DOI/PMID/
+  作者规范化、夹具配置（37 项自检）
+- **S2-A 去重**：`normalize_records.py`（清洗 + 哈希重算，21 项）；
+  `dedup_records.py`（DOI/PMID 精确 + 标题模糊三级去重；**模糊命中一律
+  `suspected_duplicate` 不自动合并**；精确合并才从 dedup_unique 剔除，28 项）
+- **S2-B 题摘初筛**：`classify_articles.py`（有序关键词规则引擎，词表/映射全部
+  来自配置；AI 三值建议 + 规则 id + 命中证据，19 项）；`screening_summary.py`
+  （闭集全展开计数 + GATE-S2b pending 提示，11 项）
+- **S2-C 全文筛**：`fulltext_screening.py`（PDF 走 PyMuPDF / HTML / TXT；
+  人体样本·分析物·统计量·年份四问；排除原因闭集；**GATE-S2b 检查点：
+  human_decision 有空值即拒绝执行**，20 项）
+- **收口**：`generate_inclusion_list.py`（**GATE-S2c 检查点：未终裁 / uncertain
+  残留 / 排除编码越界 → 拒绝**；included/excluded/screening_log 三表，20 项）；
+  `generate_prisma.py`（PRISMA 2020 Mermaid 流程图 + **四条恒等式数字自洽校验**，
+  13 项）
+- 文档：`SKILL.md`、`screening-workflow.md`（三阶段方法学）、
+  `references/exclusion_reasons.md`（10 个排除编码的判定标准与易错案例）
+- `templates/project.yaml` 与示例配置新增 `screening` 区块（9 类文章类型 /
+  8 条分类规则 / 10 个排除编码 / 去重阈值——全部显式可扩展）
+- `gen_templates.py` 新增 **8 份 S2 模板**（值由 S2 引擎对内置夹具真实运行算出，
+  64 项自检）
+- `quality-gates.md` 新增 **GATE-S2a/S2b/S2c**（S2 阶段人工确认点，脚本检查点
+  由 S2 脚本强制；GATE-2 保持不变，两者衔接关系已写明）
+- `requirements.txt` 新增条件必需组 **PyMuPDF**（PDF 全文解析；缺库且有 PDF
+  待处理 → 显式报错，不做静默降级）；CI 安装组同步
+- CI：`validate.yml` / `ci_local.py` 新增 8 个 S2 自检目标与 8 份随包模板断言；
+  `verify_structure.py` 将 S2 移入已实现子技能（**6/6 子技能全部实现**）
+
 ### Added · S1-search-strategy 完整实现（STEP4-TODO.md F5 之 S1 部分 / F3 的 RIS·EndNote·BibTeX 部分）
 
 - `shared/record_schema.py` — 统一题录字段 / 来源枚举 / `raw_row_hash` 算法的**单一来源**
