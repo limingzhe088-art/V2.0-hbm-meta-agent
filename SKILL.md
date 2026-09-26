@@ -97,8 +97,10 @@ hbm-meta/
 │     每个子技能统一结构：SKILL.md + references/ + scripts/（含 --self-test）+ templates/
 ├── templates/
 │   └── project.yaml            项目配置模板（含 search / screening 条件必需区块）
-├── examples/                   脱敏范例（arsenic-china-1980-2024）
-├── tests/                      ci_local / verify_structure / verify_consistency / …
+├── scripts/
+│   └── run_pipeline.py         ★ S1→S6 全流程编排器（闸门检查 + 断点续跑 + --status）
+├── examples/                   脱敏范例（arsenic-china-1980-2024；bpa-china-demo 合成案例）
+├── tests/                      ci_local / verify_structure / verify_consistency / 集成测试 / …
 ├── .github/workflows/          CI：schema 校验 + 脚本自检 + frontmatter 校验
 └── requirements.txt            Python 环境（单栈，无 R 依赖）
 ```

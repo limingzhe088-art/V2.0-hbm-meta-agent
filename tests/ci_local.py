@@ -55,6 +55,7 @@ SELFTEST_TARGETS = [
     "shared/inferred_flags.py",
     "shared/record_schema.py",
     "shared/snapshot.py",
+    "scripts/run_pipeline.py",
     "skills/S1-search-strategy/scripts/generate_search_terms.py",
     "skills/S1-search-strategy/scripts/parse_ris.py",
     "skills/S1-search-strategy/scripts/parse_enl.py",
@@ -92,7 +93,7 @@ PROBE_DEFAULT = re.compile(
     r"^(DEFAULT_CONFIG|DEFAULT_PERIOD_SCHEME|DEFAULT_EDI_PARAMS|"
     r"DEFAULT_UNIT_POLICY|DEFAULT_URINE_REFERENCE)\s*=", re.M)
 
-SCAN_DIRS = ["shared", "skills", "tests"]
+SCAN_DIRS = ["shared", "skills", "tests", "scripts"]
 
 # ★ 自我排除：本文件与注入工具**包含探针模式本身**（如正则里的 `chdck`、
 #   文档示例里的 `E:\`），扫描它们必然假阳性。GitHub Actions 的 grep 不受影响
@@ -309,6 +310,52 @@ def step_e2e_demo(verbose: bool) -> tuple[bool, list[str]]:
     return ok, [f"{'✅' if ok else '❌'} test_e2e_bpa_demo  {tail[:60]}"]
 
 
+# ── 步骤 9/10/11：与 validate.yml 的 C9/C10/C11 对齐 ──────────────────
+S1_SCRIPTS = [
+    "skills/S1-search-strategy/scripts/generate_search_terms.py",
+    "skills/S1-search-strategy/scripts/parse_ris.py",
+    "skills/S1-search-strategy/scripts/parse_enl.py",
+    "skills/S1-search-strategy/scripts/parse_bibtex.py",
+    "skills/S1-search-strategy/scripts/merge_sources.py",
+]
+S2_SCRIPTS = [
+    "skills/S2-screening-quality/scripts/screening_schema.py",
+    "skills/S2-screening-quality/scripts/normalize_records.py",
+    "skills/S2-screening-quality/scripts/dedup_records.py",
+    "skills/S2-screening-quality/scripts/classify_articles.py",
+    "skills/S2-screening-quality/scripts/screening_summary.py",
+    "skills/S2-screening-quality/scripts/fulltext_screening.py",
+    "skills/S2-screening-quality/scripts/generate_inclusion_list.py",
+    "skills/S2-screening-quality/scripts/generate_prisma.py",
+]
+
+
+def step_group_selftest(rels: list[str]) -> tuple[bool, list[str]]:
+    notes, fails = [], 0
+    for rel in rels:
+        r = subprocess.run([sys.executable, str(ROOT / rel), "--self-test"],
+                           capture_output=True, timeout=300)
+        out = (r.stdout or "").decode("utf-8", "replace")
+        line = next((ln.strip() for ln in out.splitlines()
+                     if "self-test" in ln and "通过" in ln), "")
+        ok = r.returncode == 0
+        fails += 0 if ok else 1
+        notes.append(f"{'✅' if ok else '❌'} {Path(rel).name}  {line[:44]}")
+    notes.append(f"—— 自检失败数：{fails} / {len(rels)} ——")
+    return fails == 0, notes
+
+
+def step_pipeline_integration(verbose: bool) -> tuple[bool, list[str]]:
+    """全流程编排器集成测试：闸门暂停/续传 + S1→S6 链路（BPA 合成案例）。"""
+    p = ROOT / "tests/test_pipeline_integration.py"
+    r = subprocess.run([sys.executable, str(p)], cwd=str(ROOT),
+                       capture_output=True, timeout=900)
+    out = (r.stdout or "").decode("utf-8", "replace")
+    tail = out.strip().splitlines()[-1] if out.strip() else ""
+    ok = r.returncode == 0 and "集成测试通过" in out
+    return ok, [f"{'✅' if ok else '❌'} test_pipeline_integration  {tail[:60]}"]
+
+
 STEPS = [
     ("1  全部脚本 --self-test", step_selftests),
     ("2  模板与实现一致性", step_gen_templates),
@@ -318,6 +365,9 @@ STEPS = [
     ("6  随包文件已入库（防漏提交）", step_shipped_files),
     ("7  仓库洁净度（防字节码/CRLF）", step_repo_cleanliness),
     ("8  E2E：BPA 合成案例（S1→S2→S3 交接）", step_e2e_demo),
+    ("9  S1 脚本自检（C9 对齐）", lambda v: step_group_selftest(S1_SCRIPTS)),
+    ("10 S2 脚本自检（C10 对齐）", lambda v: step_group_selftest(S2_SCRIPTS)),
+    ("11 全流程集成测试（run_pipeline，C11 对齐）", step_pipeline_integration),
 ]
 
 

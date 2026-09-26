@@ -114,6 +114,14 @@ edi:
     enabled: false
     reason: "缺乏胎儿/新生儿药代动力学参数 → 方案 A：跳过并计数"
 
+# ── S3+ 输入（相对本文件所在目录）───────────────────────────────────
+# master_table：对 included_studies.csv 的 6 项研究完成人工/AI 协助提取后的主表
+# （合成示例表由 make_demo_master_table.py 生成）。
+# manuscript：稿件成稿后填写（S6 audit_numbers 的数值审计对象）；未配置时
+# 编排器的 s6 阶段显式跳过数值审计并提示。
+input:
+  master_table: "03-extraction/master_table_EXAMPLE.csv"
+
 # ── S1 检索策略 ─────────────────────────────────────────────────────
 # search_string / records_exported / export_file 是 GATE-1 人工登记位；
 # 权威执行记录见 01-search/source_summary.csv。

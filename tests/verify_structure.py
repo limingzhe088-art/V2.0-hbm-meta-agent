@@ -72,6 +72,7 @@ TOP_LEVEL_REQUIRED = [
     "requirements.txt",
     ".gitignore",
     "STEP4-TODO.md",
+    "scripts/run_pipeline.py",
     "tests/verify_consistency.py",
     "tests/verify_structure.py",
     "tests/ci_local.py",

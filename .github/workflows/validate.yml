@@ -50,6 +50,7 @@ jobs:
             fi
           }
           for f in \
+            scripts/run_pipeline.py \
             shared/project_config.py \
             shared/inferred_flags.py \
             shared/record_schema.py \
@@ -99,7 +100,7 @@ jobs:
       # ── 源码卫生：损坏字符探针 + 硬编码路径 + 无兜底 ───────────────
       # 注：`tests/ci_local.py`（本地 CI 预演）用 Python 实现了同样三项检查，
       #     但它自身**包含探针模式字符串**，故其扫描需自我排除；
-      #     本 workflow 的 grep 只扫 shared/skills/tests 下的 .py，不含 .github/，
+      #     本 workflow 的 grep 只扫 shared/skills/tests/scripts 下的 .py，不含 .github/，
       #     因此无自指问题。两条路径结论一致。
       - name: "源码卫生（探针 / 硬编码 / 兜底）"
         shell: bash
@@ -107,18 +108,18 @@ jobs:
           set -euo pipefail
           echo "── 损坏字符探针 ──"
           if grep -rEn '\b(chdck|gith|rogs|loger|geighted|Falsd|Nond|negline|hdaddr|ddf|ddi)\b' \
-               --include='*.py' shared skills tests ; then
+               --include='*.py' shared skills tests scripts ; then
             echo "FAIL: 发现损坏字符（见 agent/routing.md §2.6）"; exit 1
           fi
           echo "OK 无损坏字符"
           echo "── 硬编码路径 ──"
-          if grep -rEn 'E:\\|重金属暴露|/Users/|C:\\\\Users' --include='*.py' shared skills tests ; then
+          if grep -rEn 'E:\\|重金属暴露|/Users/|C:\\\\Users' --include='*.py' shared skills tests scripts ; then
             echo "FAIL: 发现硬编码路径（见 STEP4-TODO.md A2）"; exit 1
           fi
           echo "OK 无硬编码路径"
           echo "── 口径兜底（DEFAULT_*）──"
           if grep -rEn '^(DEFAULT_CONFIG|DEFAULT_PERIOD_SCHEME|DEFAULT_EDI_PARAMS|DEFAULT_UNIT_POLICY)\s*=' \
-               --include='*.py' shared skills ; then
+               --include='*.py' shared skills scripts ; then
             echo "FAIL: 发现口径默认值兜底（见 STEP4-TODO.md A1）"; exit 1
           fi
           echo "OK 无口径兜底"
@@ -182,6 +183,44 @@ jobs:
       # 判定逻辑与本地 tests/ci_local.py 第 7 步共用 verify_repo_clean.py 同一套代码。
       - name: "C8 · 仓库洁净度（字节码 / CRLF）"
         run: python tests/verify_repo_clean.py
+
+      # ── C9：S1 脚本自检（检索式草稿 + 题录解析 + 合并）────────────
+      - name: "C9 · S1 脚本自检"
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in \
+            skills/S1-search-strategy/scripts/generate_search_terms.py \
+            skills/S1-search-strategy/scripts/parse_ris.py \
+            skills/S1-search-strategy/scripts/parse_enl.py \
+            skills/S1-search-strategy/scripts/parse_bibtex.py \
+            skills/S1-search-strategy/scripts/merge_sources.py ; do
+            python "$f" --self-test > /dev/null 2>&1 && echo "PASS  $f" \
+              || { echo "FAIL  $f"; exit 1; }
+          done
+
+      # ── C10：S2 脚本自检（去重/分类/全文筛/清单/PRISMA）───────────
+      - name: "C10 · S2 脚本自检"
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in \
+            skills/S2-screening-quality/scripts/screening_schema.py \
+            skills/S2-screening-quality/scripts/normalize_records.py \
+            skills/S2-screening-quality/scripts/dedup_records.py \
+            skills/S2-screening-quality/scripts/classify_articles.py \
+            skills/S2-screening-quality/scripts/screening_summary.py \
+            skills/S2-screening-quality/scripts/fulltext_screening.py \
+            skills/S2-screening-quality/scripts/generate_inclusion_list.py \
+            skills/S2-screening-quality/scripts/generate_prisma.py ; do
+            python "$f" --self-test > /dev/null 2>&1 && echo "PASS  $f" \
+              || { echo "FAIL  $f"; exit 1; }
+          done
+
+      # ── C11：全流程链路集成测试（BPA 合成案例经 run_pipeline，
+      #         闸门暂停/续传 + 状态机留痕验证；全部数据虚构）────────
+      - name: "C11 · 全流程链路集成测试"
+        run: python tests/test_pipeline_integration.py
 
       # ── C12：端到端测试（BPA 合成案例，全部数据虚构）────────────────
       # S1 解析/合并 → S2 规范化/去重/分类/全文筛/清单/PRISMA → S2→S3 交接

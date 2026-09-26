@@ -7,6 +7,42 @@
 
 ## [Unreleased]
 
+### Added · S1→S6 全流程编排器与集成测试
+
+- `scripts/run_pipeline.py` — **全流程编排器**（根目录 scripts/）：
+  - 阶段：`s1`（按库解析→合并→检索式草稿）/ `s2a`（规范化+去重）/
+    `s2b`（应用去重裁决+题摘分类）/ `s2c`（全文筛）/ `s2d`（清单+PRISMA）/
+    `s3`（主表契约校验）/ `s4`（convert_units→wan_convert）/ `s5`（weighted_gm→edi）/
+    `s6`（dedup_screen→sensitivity→audit_numbers）/ `s2` / `all` / `--status`
+  - **闸门检查**：每阶段前置闸门从项目 `_state/gates.json` 读取，未通过 →
+    退出码 3（WAITING）并提示人工操作位置——编排器只读闸门，永不写入
+    （"只有人可以开门"铁律）；缺手稿时 audit 显式跳过
+  - **断点续跑**：人工编辑产物（检索式草稿 / dedup_decisions /
+    title_abstract_screening / fulltext_screening）有"人工列已填写"即跳过
+    不覆盖，AI 草稿态可重生成；`--force` 显式覆盖
+  - **留痕**：`_state/pipeline_log.json` 追加式记录每步状态（含 waiting）；
+    退出码约定 0 成功 / 2 硬错误 / 3 等待人工；脚本退出码 1（"完成但含告警/
+    待裁决项"）判为可继续并标记 ok_with_warnings
+  - `--self-test` 19 项；源码卫生扫描范围扩至根目录 `scripts/`
+- `tests/test_pipeline_integration.py` — **全链路集成测试（37 项断言）**：
+  在临时项目目录用 bpa-china-demo 逐阶段驱动真实脚本链
+  （parse→merge→normalize→dedup→classify→fulltext→inclusion→prisma→
+  validate_table→convert_units→wan_convert→weighted_gm→edi→dedup_screen→
+  sensitivity），验证：闸门暂停/续传语义（未开闸 → 退出码 3；人工写
+  gates.json 后重跑成功）、疑似重复未裁决阻断（WAITING）、人工裁决应用
+  （dedup_unique_confirmed）、人工列保护（重跑不覆盖）、`--stage all`
+  首个人工点暂停、pipeline_log 状态机留痕（每阶段 waiting→ok）
+- `examples/bpa-china-demo/project.yaml` 新增 `input.master_table` 区块
+  （S3/S4/S6 的主表入口）
+- `generate_inclusion_list.py`：study_id 编号修正——纳入集 `ST-xxxx` 与
+  排除集 `EX-xxxx` 分命名空间各自连续（原全表连续编号使 included 出现
+  ST-0007）；data-contract §10.6 补记
+- CI：validate.yml 新增 **C9（S1 自检）/ C10（S2 自检）/ C11（全流程集成）**；
+  ci_local 对齐新增步骤 9/10/11；C1 增 `scripts/run_pipeline.py`；
+  源码卫生 grep 扫描范围扩至 `scripts/`
+- 全文文件按 record_id 命名的真实流程约束在集成测试中以"人工按标题归位"
+  步骤演示（真实项目即此操作）
+
 ### Changed · 项目配置与共享资产扩展（支持 S1/S2）
 
 - `templates/project.yaml`（示例配置同步）：
