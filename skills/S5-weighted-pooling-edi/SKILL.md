@@ -22,7 +22,7 @@ metadata:
   gate: null                        # S5 无独立闸门；GATE-5（去重与敏感性裁决）由 S6 承接
   output_gate: "none (GATE-5 handled by S6)"
   internal_gate: "reporting_checklist.md §1–§9（脚本级硬门禁，非人工裁决门）"
-  contract_version: "1.0.0"
+  contract_version: "1.1.0"
   task_type: open-ended
 ---
 

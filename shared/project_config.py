@@ -43,7 +43,7 @@ except (AttributeError, ValueError):  # pragma: no cover
 # 1. 契约常量（结构性默认值，**不是口径兜底**）
 # ===========================================================================
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 # 必需区块：缺失即硬错误（GATE-0 未完成的标志）
 #

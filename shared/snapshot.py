@@ -42,7 +42,7 @@ except (AttributeError, ValueError):  # pragma: no cover
     pass
 
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 SHA_DISPLAY_LEN = 12          # 可读显示长度（完整哈希仍保留）
 CHUNK = 1 << 20               # 1 MiB
 

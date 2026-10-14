@@ -41,7 +41,7 @@ except (AttributeError, ValueError):  # pragma: no cover
     pass
 
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 # ===========================================================================
 # 1. 统一字段清单（单一来源；列顺序即输出 CSV 的列顺序）

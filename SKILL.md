@@ -16,10 +16,10 @@ allowed-tools:
   - TodoWrite
   - AskUserQuestion
 metadata:
-  version: "1.0.0"
-  last_updated: "2026-07-19"
+  version: "2.0.0"
+  last_updated: "2026-09-26"
   status: active
-  contract_version: "1.0.0"
+  contract_version: "1.1.0"
   task_type: open-ended
   tool_name_mapping: "DSH 不解析 allowed-tools；上表沿用 Claude Code 规范写法。若运行于 DSH，`Task`→`subagent`/`subagent_fork`，`TodoWrite`→`todo_write`，`AskUserQuestion`→`ask_user_question`（DSH 内置大小写不敏感的 CC 工具名映射表）。"
 ---

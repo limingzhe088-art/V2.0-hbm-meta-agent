@@ -35,8 +35,8 @@ keywords:
   - risk-of-bias
   - reproducibility
   - research-software
-version: "1.0.0"
-date-released: "2026-07-19"
+version: "2.0.0"
+date-released: "2026-09-26"
 references:
   - type: article
     title: "Estimating the sample mean and standard deviation from the sample size, median, range and/or interquartile range"

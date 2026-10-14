@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import re
 import sys
 from pathlib import Path
 
@@ -314,10 +315,13 @@ def _block_and_join(blocks: list[str], joiner: str = " AND ") -> str:
 
 def build_pubmed(spec: dict) -> tuple[str, list[str]]:
     notes = []
-    analyte = _or_join([u for b in spec["analytes"]
-                        for u in _analyte_block(b, "pubmed")])
-    matrix = _or_join([u for b in spec["matrices"]
-                       for u in _analyte_block(b, "pubmed")])
+    # 单元已自带格式（"x"[MeSH Terms] / "x"[tiab]），只做纯 OR 连接——
+    # 过 _or_join 会被按"含空格的裸词项"再包一层引号
+    # （v2.0.0 生成器缺陷：PubMed 单元二次加引号，2026-09-28 修复）
+    analyte = " OR ".join(u for b in spec["analytes"]
+                          for u in _analyte_block(b, "pubmed"))
+    matrix = " OR ".join(u for b in spec["matrices"]
+                         for u in _analyte_block(b, "pubmed"))
     exposure = _or_pubmed(spec["exposure_terms"])
     population = _or_pubmed(spec["population_keywords"])
     parts = [f"({analyte})", f"({matrix})", f"({exposure})", f"({population})"]
@@ -385,14 +389,12 @@ def build_scopus(spec: dict) -> tuple[str, list[str]]:
 
 def build_embase(spec: dict) -> tuple[str, list[str]]:
     notes = []
+    # _analyte_block(thesaurus) 已包含叙词 + 同义词两类单元——勿再追加同义词，
+    # 追加 = 同义词整块出现两遍（v2.0.0 生成器缺陷，2026-09-28 修复）
     analyte_units = [u for b in spec["analytes"]
                      for u in _analyte_block(b, "thesaurus")]
-    analyte_units += [_or_join(b["synonyms"]) for b in spec["analytes"]
-                      if b["synonyms"]]
     matrix_units = [u for b in spec["matrices"]
                     for u in _analyte_block(b, "thesaurus")]
-    matrix_units += [_or_join(b["synonyms"]) for b in spec["matrices"]
-                     if b["synonyms"]]
     exposure = _or_join(spec["exposure_terms"])
     population = _or_join(spec["population_keywords"])
     core = (_block_and_join([" OR ".join(analyte_units), " OR ".join(matrix_units),
@@ -566,18 +568,25 @@ def render_draft(spec: dict, cfg_summary: str) -> str:
 
 
 def _wrap_query(query: str, width: int = 100) -> list[str]:
-    """长查询按行折行（只对 ' AND '/' NOT ' 边界折，不破坏词项）。"""
+    """长查询按行折行（只对 ' AND '/' NOT ' 边界折，不破坏词项）。
+
+    切分时连接符（AND/NOT）与其**后续词项**保持同组——若产生裸连接符 token，
+    拼回时会得到 "AND AND" / "NOT NOT"（v2.0.0 真实缺陷，见 CHANGELOG Fixed）。
+    """
     out: list[str] = []
     cur = ""
-    for token in query.replace(" NOT ", "\nNOT ").replace(" AND ", "\nAND ").split("\n"):
+    parts = re.split(r" (AND|NOT) ", query)
+    segments: list[str] = [parts[0]] if parts and parts[0] else []
+    for j in range(1, len(parts) - 1, 2):
+        segments.append(f"{parts[j]} {parts[j + 1]}")
+    for seg in segments:
         if not cur:
-            cur = token
-        elif len(cur) + len(token) + 5 <= width:
-            joiner = " NOT " if token.startswith("NOT ") else " AND "
-            cur += joiner + token
+            cur = seg
+        elif len(cur) + 1 + len(seg) <= width:
+            cur += " " + seg
         else:
             out.append(cur)
-            cur = token
+            cur = seg
     if cur:
         out.append(cur)
     return out
@@ -715,6 +724,17 @@ def run_self_test() -> int:
           and '"chinese"[Language]' in q_pm2)
     q_wos2, _ = build_wos(spec_v2)
     check("WoS 草稿含 LA= 语言过滤", "LA=(English OR Chinese)" in q_wos2)
+    _w1 = _wrap_query("A AND B AND NOT X AND C")
+    check("折行（短）：不产生裸连接符（AND AND / NOT NOT 回归）",
+          _w1 == ["A AND B AND NOT X AND C"], str(_w1))
+    _w2 = _wrap_query("(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) AND (bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) "
+                      "AND (cccccccccccccccccccccccccccccccccccc) AND NOT (dddddddddddddd)", width=60)
+    _w2_joined = " ".join(_w2)
+    check("折行（长）：续行以 AND/NOT 开头且拼回无裸连接符",
+          all(line.startswith(("AND ", "NOT ")) for line in _w2[1:])
+          and " AND AND " not in _w2_joined and " NOT NOT " not in _w2_joined
+          and _w2_joined == ("(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) AND (bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) "
+                             "AND (cccccccccccccccccccccccccccccccccccc) AND NOT (dddddddddddddd)"), str(_w2))
     expect_error("未知语言代码 → ConfigError",
                  lambda: validate_search(load_config(_write_fixture(
                      tmp, "badlang.yaml", FIXTURE_YAML_V2.replace(
@@ -743,6 +763,7 @@ def run_self_test() -> int:
     check("含 [tiab] 同义词", "arsenic" in q_pm and "[tiab]" in q_pm)
     check("含 NOT 排除块", "NOT (mice" in q_pm)
     check("含年份过滤（PDAT）", "1980/01/01" in q_pm and "2024/12/31" in q_pm)
+    check("PubMed 单元无二次加引号（\"\" 回归）", '""' not in q_pm)
     check("职业排除触发过度杀伤预警",
           any("过度杀伤" in n or "NOT occupational" in n or "连带排除" in n
               for n in n_pm), " | ".join(n_pm)[:60])
@@ -758,6 +779,8 @@ def run_self_test() -> int:
     q_em, n_em = build_embase(spec)
     check("Embase 用 Emtree /exp 与年份区间",
           "'Arsenic'/exp" in q_em and "[1980-2024]" in q_em)
+    check("Embase 同义词不重复（追加回归）",
+          q_em.count("inorganic arsenic") == 1)
 
     print("\n[4] 中文库与 synonyms_zh")
     q_cn, n_cn = build_cnki(spec)

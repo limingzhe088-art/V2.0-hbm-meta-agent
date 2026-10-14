@@ -17,13 +17,13 @@ allowed-tools:
   - AskUserQuestion
 metadata:
   parent_skill: hbm-meta
-  version: "1.0.0"
+  version: "2.0.0"
   last_updated: "2026-09-26"
   status: active
   stage: 1
   gate: GATE-1
   output_gate: "GATE-1（检索充分性，人工确认）"
-  contract_version: "1.0.0"
+  contract_version: "1.1.0"
   task_type: open-ended
 ---
 

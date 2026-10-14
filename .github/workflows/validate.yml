@@ -101,19 +101,21 @@ jobs:
       # 注：`tests/ci_local.py`（本地 CI 预演）用 Python 实现了同样三项检查，
       #     但它自身**包含探针模式字符串**，故其扫描需自我排除；
       #     本 workflow 的 grep 只扫 shared/skills/tests/scripts 下的 .py，不含 .github/，
-      #     因此无自指问题。两条路径结论一致。
+#     本 workflow 的 grep 用 --exclude 排除这两个文件。
+#     ★ v2.0.0 修复：v1.0.0 的本步骤未做 --exclude，grep 会命中
+#     ci_local.py 自身的探针定义，导致源码卫生步骤恒红。
       - name: "源码卫生（探针 / 硬编码 / 兜底）"
         shell: bash
         run: |
           set -euo pipefail
           echo "── 损坏字符探针 ──"
           if grep -rEn '\b(chdck|gith|rogs|loger|geighted|Falsd|Nond|negline|hdaddr|ddf|ddi)\b' \
-               --include='*.py' shared skills tests scripts ; then
+               --include='*.py' --exclude=ci_local.py --exclude=inject_failure.py \n               shared skills tests scripts ; then
             echo "FAIL: 发现损坏字符（见 agent/routing.md §2.6）"; exit 1
           fi
           echo "OK 无损坏字符"
           echo "── 硬编码路径 ──"
-          if grep -rEn 'E:\\|重金属暴露|/Users/|C:\\\\Users' --include='*.py' shared skills tests scripts ; then
+          if grep -rEn 'E:\\|重金属暴露|/Users/|C:\\\\Users' --include='*.py' --exclude=ci_local.py --exclude=inject_failure.py shared skills tests scripts ; then
             echo "FAIL: 发现硬编码路径（见 STEP4-TODO.md A2）"; exit 1
           fi
           echo "OK 无硬编码路径"

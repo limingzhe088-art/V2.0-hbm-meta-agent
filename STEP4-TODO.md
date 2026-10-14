@@ -1,6 +1,6 @@
 # 第四步待办清单（脚本通用化改造）
 
-> 状态：**P0 已完成（见 §0）**，P1–P3 待执行
+> 状态：**P0–P3 已完成（见 §0）**；F5（S1/S2）已于 v2.0.0 清偿，F3 大部分清偿（题录侧）
 > 本文件记录第三步刻意留下的骨架妥协，以及必须在第四步清偿的技术债。
 > **第四步未完成前，不得对外宣称脚本可用于正式分析。**
 
@@ -258,9 +258,9 @@ PowerShell 的 UTF-8 往返做了字符替换（`check`→`chdck`、`with`→`gi
 
 | 项 | 内容 |
 |---|---|
-| 现状 | `audit_numbers.py` 用占位符/线索双模式处理 `.md`/`.txt`；`.docx` 需先转换；文献库须先导出 CSV |
-| 待补 | `.docx` 原生解析（含修订痕迹与批注）；`.enl`/`.ris`/`.bib` 文献库解析 |
-| 实现步骤 | 引入 `python-docx` 与 RIS/BibTeX 解析；**保持"AI 只产差异、人裁决"边界不变** |
+| 现状（v2.0.0） | ✅ **题录侧已实现**（S1：`parse_ris.py` / `parse_enl.py`（RefMan XML + 制表符 TXT/CSV）/ `parse_bibtex.py`，纯标准库）；`audit_numbers.py` 手稿侧仍用占位符/线索双模式处理 `.md`/`.txt` |
+| 待补 | `.docx` 稿件原生解析（含修订痕迹与批注）；`.enl` 二进制库直读（当前显式拒绝并提示先导出） |
+| 实现步骤 | 引入 `python-docx`；**保持"AI 只产差异、人裁决"边界不变** |
 
 ### F4 · `weighting.method = inverse_variance`
 
@@ -276,7 +276,7 @@ PowerShell 的 UTF-8 往返做了字符替换（`check`→`chdck`、`with`→`gi
 
 | 项 | 内容 |
 |---|---|
-| **当前状态** | S1（`skills/S1-search-strategy/`）与 S2（`skills/S2-screening-quality/`）**只有目录骨架**（含 `references/` `scripts/` `templates/` 三个空目录），**没有 SKILL.md，也没有任何实现** |
+| **当前状态** | ✅ **已于 v2.0.0 实现（2026-09-26，见 CHANGELOG [2.0.0]）**：S1（检索式草稿生成 + RIS/EndNote/BibTeX 解析 + 多库合并）与 S2（规范化 + 三级去重 + 关键词分类 + 全文四问 + 纳入/排除清单 + PRISMA）均为完整子技能（SKILL.md + 方法学文档 + 含 `--self-test` 的脚本 + gen_templates 模板）；`verify_structure.py` 的 `PLANNED_SUB_SKILLS` 已清空。下方原实现清单保留作历史记录。 |
 | **为何登记** | `tests/verify_structure.py` 把 S1/S2 列入 `PLANNED_SUB_SKILLS` 并标注"规划中不校验"，因此对外会显示 **"结构校验 6/6 通过"**。若不登记，未来的贡献者会以为 6 个子技能都已完整实现 —— **这就是误导** |
 | **S1 实现内容** | ① **检索策略生成**：数据库语法差异表（PubMed `NOT` 陷阱 / WoS `TS=` / CNKI `TKA=` 与 `SU=` / 万方）、曝光物×基质×人群×暴露评估四维词表拼装法<br>② **排除词银行**（四类分组）：动物 · 细胞机制 · 职业 · 临床；每组附适用条件与"过度杀伤"预警<br>③ **检索充分性诊断**：命中量级是否落在该领域合理区间；过少→放宽基质，过多→加排除词<br>④ 产出 `检索记录.csv`（库/检索式原文/日期/命中数）→ 直接生成 PRISMA Identification 数字<br>⑤ scripts：`tally_records.py`（命中去重统计，需含 `--self-test`） |
 | **S2 实现内容** | ① **PRISMA 2020 两阶段流程** + 数字自洽校验（各阶段数字必须能对上账）<br>② **AHRQ 11 条量表**逐条判"是"的标准 + 分期校准（早期研究检测方法弱不该被机械扣分）<br>③ **三类偏倚正反例库**（选择 / 测量 / 混杂；含尿校正、血基质两个高频坑）<br>④ **三类边界人群疑似清单**：职业暴露 · 疾病/病区人群 · 混合人群（AI 只列证据，人工逐条裁决）<br>⑤ **同队列/同城聚簇清单**（复用 S6 的 `dedup_screen.py` 聚类逻辑）<br>⑥ 产出 `纳入流程图`、`质量评分表`、`疑似排除清单.md`<br>⑦ scripts：`flag_scan.py`（标题级否定词扫描，需含 `--self-test`） |

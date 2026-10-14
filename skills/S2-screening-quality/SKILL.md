@@ -15,13 +15,13 @@ allowed-tools:
   - AskUserQuestion
 metadata:
   parent_skill: hbm-meta
-  version: "1.0.0"
+  version: "2.0.0"
   last_updated: "2026-09-26"
   status: active
   stage: 2
   gate: "GATE-S2a/S2b/S2c（阶段内人工确认点）+ GATE-2（人群边界裁决，见 shared/quality-gates.md）"
   output_gate: "GATE-2 通过后方可进入 S3 提取"
-  contract_version: "1.0.0"
+  contract_version: "1.1.0"
   task_type: open-ended
 ---
 

@@ -972,7 +972,7 @@ def run_self_test(scheme: dict | None = None,
     check("新增字段有默认值（不破坏原调用）",
           s_shared.source_table == "" and s_shared.generated_at == ""
           and s_shared.config_version == "1.0.0"
-          and s_shared.contract_version == "1.0.0"
+          and s_shared.contract_version == "1.1.0"
           and s_shared.git_commit == "")
     # detect_stale 语义等价（与迁移前一致）
     s_old = Snapshot(tag="As_2026-03-29", sha256="b" * 64)

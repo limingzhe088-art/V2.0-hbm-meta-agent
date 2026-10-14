@@ -35,7 +35,7 @@ except (AttributeError, ValueError):  # pragma: no cover
     pass
 
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 # ===========================================================================
 # 单一来源：全部标记（顺序即 data-contract.md §6 的顺序，便于逐项对照）

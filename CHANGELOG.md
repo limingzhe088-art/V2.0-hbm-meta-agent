@@ -5,7 +5,30 @@
 
 ---
 
-## [Unreleased]
+## [2.0.0] — 2026-09-26
+
+**S1–S6 六个子技能全部实现**的版本：补齐 v1.0.0 登记的两大缺口（S1 检索策略、
+S2 筛选质控），新增全流程编排器与合成端到端测试。配套版本：契约 1.0.0 → **1.1.0**
+（additive，新增 §10 筛选层七表；主表 72 字段语义不变）、配置口径 1.0.0 → **2.0.0**
+（新增 search / screening 条件必需区块）。
+
+### Fixed · v1.0.0 缺口清偿
+
+- **F5（S1/S2 仅有骨架、未实现）→ 已完整实现**：两个子技能各自形成
+  SKILL.md + 方法学文档 + references + 脚本（含 `--self-test`）+ 模板的完整结构；
+  `verify_structure.py` 的 `PLANNED_SUB_SKILLS` 清空（6/6 子技能实现）
+- **F3（题录格式解析缺失）→ 大部分实现**：RIS / EndNote（RefMan XML、
+  制表符 TXT/CSV）/ BibTeX 解析器以纯标准库落地；`.docx` 原生解析仍为待办
+- **筛选阶段无自动化 → "AI 预处理 + 人工闸门"完整落地**：题录归一、三级去重、
+  关键词分类、全文四问判定、纳入/排除清单、PRISMA 2020 流程图全部脚本化；
+  人工裁决点固化为 GATE-S2a / GATE-S2b / GATE-S2c（脚本强制检查点，
+  `passed` 仍只由人写入）
+- **S1→S6 无编排入口 → `scripts/run_pipeline.py`**：分阶段调度 + 闸门检查 +
+  断点续跑 + 运行留痕（详见下方 Added）
+- **CI 源码卫生步骤自指误报（v1.0.0 遗留）→ 已修复**：validate.yml 的
+  损坏字符/硬编码路径 grep 未排除 `tests/ci_local.py`（其自身包含探针定义），
+  结构上导致 GitHub CI 的 hygiene 步骤恒红；现以 `--exclude` 与本地
+  `SELF_EXCLUDE` 对齐
 
 ### Added · S1→S6 全流程编排器与集成测试
 

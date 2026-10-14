@@ -51,7 +51,7 @@ except ImportError as _exc:  # pragma: no cover
 # 契约常量（第四步将改为从 project.yaml 读取）
 # ---------------------------------------------------------------------------
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 # data-contract.md §3 —— 必填列
 REQUIRED_COLUMNS = [

@@ -20,7 +20,7 @@ metadata:
   status: active
   stage: 4
   gate: GATE-4
-  contract_version: "1.0.0"
+  contract_version: "1.1.0"
   task_type: open-ended
 ---
 

@@ -56,7 +56,7 @@ except ImportError as _exc:  # pragma: no cover
     raise SystemExit(2)
 
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 # ===========================================================================
 # 1. 闭集枚举（结构性常量；词表内容来自 project.yaml）
